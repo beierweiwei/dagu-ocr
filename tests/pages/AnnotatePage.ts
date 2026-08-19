@@ -13,6 +13,8 @@ export class AnnotatePage {
   readonly btnClear: Locator
   readonly btnCopy: Locator
   readonly btnCancel: Locator
+  readonly btnOcr: Locator
+  readonly btnTranslate: Locator
   readonly editorContainer: Locator
   readonly canvas: Locator
   readonly status: Locator
@@ -34,6 +36,8 @@ export class AnnotatePage {
     this.btnClear = page.locator('#btn-clear')
     this.btnCopy = page.locator('#btn-copy')
     this.btnCancel = page.locator('#btn-cancel')
+    this.btnOcr = page.locator('#btn-ocr')
+    this.btnTranslate = page.locator('#btn-translate')
     this.editorContainer = page.locator('#editor-container')
     this.canvas = page.locator('.tui-image-editor-canvas-container canvas').first()
     this.status = page.locator('#status')
@@ -48,6 +52,15 @@ export class AnnotatePage {
     params.set('code', 'screenshot-annotate')
     params.set('type', 'img')
     params.set('payload', `data:image/png;base64,${imageBase64}`)
+    await this.page.goto(`/annotate.html?${params.toString()}`)
+    await this.page.waitForLoadState('networkidle')
+    await this.waitForImageLoaded()
+  }
+
+  async gotoStandaloneWithImage(imageBase64: string, screenshotFlow = false) {
+    const params = new URLSearchParams()
+    params.set('image', `data:image/png;base64,${imageBase64}`)
+    if (screenshotFlow) params.set('screenshotFlow', '1')
     await this.page.goto(`/annotate.html?${params.toString()}`)
     await this.page.waitForLoadState('networkidle')
     await this.waitForImageLoaded()

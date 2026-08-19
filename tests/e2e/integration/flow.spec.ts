@@ -1,14 +1,33 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, Page } from '@playwright/test'
 import { OcrPage } from '../../pages/OcrPage'
 import { AnnotatePage } from '../../pages/AnnotatePage'
 import { TEST_IMAGE_1x1, TEST_TEXT } from '../../fixtures/test-data'
 
+async function installMockZTools(page: Page) {
+  await page.addInitScript(() => {
+    ;(window as any).ztools = {
+      providers: {
+        getProviders: async (type: string) => [{ id: `mock-${type}`, label: `测试 ${type}` }],
+        invokeProvider: async (type: string, input: { text?: string }) => (
+          type === 'ocr' ? 'Mock OCR Result' : `Mock Translation: ${input.text || ''}`
+        )
+      },
+      copyText: () => true
+    }
+  })
+}
+
 test.describe('完整流程集成测试', () => {
   const testImageBuffer = Buffer.from(TEST_IMAGE_1x1, 'base64')
+
+  test.beforeEach(async ({ page }) => {
+    await installMockZTools(page)
+  })
 
   test('OCR识别 -> 编辑图片 -> 复制结果 完整流程', async ({ page }) => {
     const ocrPage = new OcrPage(page)
     await ocrPage.goto()
+    await ocrPage.configureMockProviders()
 
     // 1. 上传图片
     await ocrPage.uploadImage({
@@ -68,12 +87,31 @@ test.describe('完整流程集成测试', () => {
     expect(await page.evaluate(() => (window as Window & { __filePickerOpened?: boolean }).__filePickerOpened)).toBe(true)
   })
 
+  test('截图编辑器可以把当前图片交给 OCR 或翻译节点', async ({ page }) => {
+    const ocrPage = new OcrPage(page)
+    await ocrPage.goto()
+    await ocrPage.configureMockProviders()
+
+    const annotatePage = new AnnotatePage(page)
+    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+
+    await expect(annotatePage.btnOcr).toBeVisible()
+    await expect(annotatePage.btnTranslate).toBeVisible()
+
+    await annotatePage.btnTranslate.click()
+    await page.waitForURL(/index\.html.*editorAction=translate/)
+    await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
+    await expect(page.locator('#translateResult')).toHaveValue('Mock Translation: Mock OCR Result')
+  })
+
   test('配置保存后跳转编辑页面，配置不丢失', async ({ page }) => {
     const ocrPage = new OcrPage(page)
     await ocrPage.goto()
 
     // 保存配置
     await ocrPage.openConfig()
+    await ocrPage.ocrProviderSelect.selectOption('ztools:mock-ocr')
+    await ocrPage.translationProviderSelect.selectOption('ztools:mock-translation')
     const testAk = 'test-integration-ak-123'
     const testSk = 'test-integration-sk-456'
     await ocrPage.saveConfig(testAk, testSk)

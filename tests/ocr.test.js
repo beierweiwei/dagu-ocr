@@ -1,164 +1,126 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OCRApp } from '../plugin/src/ocr';
+import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_CONFIG } from '../plugin/src/core/storage.js';
+import { OCRApp } from '../plugin/src/ocr.js';
+
+function createStore() {
+  return {
+    load: vi.fn().mockResolvedValue({ ...DEFAULT_CONFIG }),
+    save: vi.fn().mockResolvedValue(undefined),
+    loadHistory: vi.fn().mockReturnValue([]),
+    saveHistory: vi.fn(),
+    clearHistory: vi.fn()
+  };
+}
+
+function createProviderService() {
+  const config = { ...DEFAULT_CONFIG };
+  return {
+    config,
+    builtin: { config },
+    refresh: vi.fn().mockResolvedValue({ ocr: [], translation: [] }),
+    invoke: vi.fn()
+  };
+}
 
 describe('OCRApp', () => {
-  beforeEach(() => {
-    // 模拟浏览器环境
-    global.window = {
-      document: {
-        getElementById: vi.fn().mockReturnValue(null)
-      },
-      localStorage: {
-        getItem: vi.fn().mockReturnValue(null),
-        setItem: vi.fn()
-      }
+  it('uses the explicit provider and storage-backed defaults', () => {
+    const app = new OCRApp({ store: createStore(), providerService: createProviderService() });
+
+    expect(app.config).toEqual(DEFAULT_CONFIG);
+    expect(app.state.mode).toBe('ocr');
+    expect(app.state.showUpload).toBe(true);
+  });
+
+  it('initializes config, provider options, and history from their stores', async () => {
+    const store = createStore();
+    const providerService = createProviderService();
+    const options = {
+      ocr: [{ id: 'ztools:ocr', label: '外部 OCR' }],
+      translation: [{ id: 'ztools:translation', label: '外部翻译' }]
     };
-    global.localStorage = global.window.localStorage;
+    store.load.mockResolvedValue({ ...DEFAULT_CONFIG, ocrProviderId: 'ztools:ocr' });
+    store.loadHistory.mockReturnValue([{ text: '历史文本', timestamp: 1 }]);
+    providerService.refresh.mockResolvedValue(options);
+
+    const app = new OCRApp({ store, providerService });
+    await app.initialize();
+
+    expect(app.config.ocrProviderId).toBe('ztools:ocr');
+    expect(app.state.providerOptions).toEqual(options);
+    expect(app.state.history).toEqual([{ text: '历史文本', timestamp: 1 }]);
+    expect(app.ready).toBe(true);
   });
 
-  it('should initialize with default config', () => {
-    const app = new OCRApp();
-    expect(app.config).toEqual({
-      baiduAk: '',
-      baiduSk: '',
-      aliAk: '',
-      aliSk: '',
-      baiduTranslateAppId: '',
-      baiduTranslateSecretKey: '',
-      sourceLang: 'auto',
-      targetLang: 'zh'
-    });
-    expect(app.baiduAccessToken).toBeNull();
-    expect(app.baiduTokenExpireTime).toBe(0);
-    expect(app.history).toEqual([]);
-    expect(app.historyExpanded).toBe(false);
-  });
+  it('saves the selected provider and secrets, then closes the config panel', async () => {
+    const store = createStore();
+    const app = new OCRApp({ store, providerService: createProviderService() });
+    app.state.showConfig = true;
 
-  it('should load config from localStorage on init', () => {
-    const mockConfig = {
-      baiduAk: 'test-ak',
-      baiduSk: 'test-sk',
-      aliAk: 'test-appcode',
-      aliSk: '',
-      baiduTranslateAppId: '',
-      baiduTranslateSecretKey: '',
-      sourceLang: 'auto',
-      targetLang: 'zh'
-    };
-    global.window.localStorage.getItem.mockReturnValue(JSON.stringify(mockConfig));
-
-    const app = new OCRApp();
-    app.loadConfig();
-
-    expect(app.config).toEqual(mockConfig);
-    expect(global.window.localStorage.getItem).toHaveBeenCalledWith('ocr_config');
-  });
-
-  it('should save config to localStorage and close panel by default', () => {
-    const app = new OCRApp();
-    // 模拟配置输入框
-    app.baiduAkInput = { value: 'new-ak' };
-    app.baiduSkInput = { value: 'new-sk' };
-    app.aliAkInput = { value: 'new-appcode' };
-    app.aliSkInput = { value: '' };
-    // 模拟hideConfigPanel方法
-    app.hideConfigPanel = vi.fn();
-    app.showStatus = vi.fn();
-
-    app.saveConfig();
-
-    expect(app.config.baiduAk).toBe('new-ak');
-    expect(app.config.baiduSk).toBe('new-sk');
-    expect(app.config.aliAk).toBe('new-appcode');
-    expect(global.window.localStorage.setItem).toHaveBeenCalledWith(
-      'ocr_config',
-      JSON.stringify(app.config)
-    );
-    expect(app.showStatus).toHaveBeenCalledWith('✅ 配置保存成功');
-    expect(app.hideConfigPanel).toHaveBeenCalled();
-    expect(app.baiduAccessToken).toBeNull();
-    expect(app.baiduTokenExpireTime).toBe(0);
-  });
-
-  it('should save config without closing panel when autoClose is false', () => {
-    const app = new OCRApp();
-    app.baiduAkInput = { value: 'test-ak' };
-    app.baiduSkInput = { value: 'test-sk' };
-    app.hideConfigPanel = vi.fn();
-    app.showStatus = vi.fn();
-
-    app.saveConfig(false);
-
-    expect(app.hideConfigPanel).not.toHaveBeenCalled();
-    expect(app.showStatus).toHaveBeenCalledWith('✅ 配置保存成功');
-  });
-
-  it('should handle save config error', () => {
-    const app = new OCRApp();
-    app.baiduAkInput = { value: 'test-ak' };
-    app.baiduSkInput = { value: 'test-sk' };
-    app.hideConfigPanel = vi.fn();
-    app.showStatus = vi.fn();
-    // 模拟localStorage保存失败
-    global.window.localStorage.setItem.mockImplementation(() => {
-      throw new Error('Storage error');
+    await app.saveConfig({
+      ocrProviderId: 'builtin:baidu-ocr',
+      translationProviderId: 'builtin:mymemory',
+      myMemoryKey: 'user-key'
     });
 
-    app.saveConfig();
-
-    expect(app.showStatus).toHaveBeenCalledWith('❌ 配置保存失败');
-    expect(app.hideConfigPanel).toHaveBeenCalled();
+    expect(store.save).toHaveBeenCalledWith(expect.objectContaining({
+      ocrProviderId: 'builtin:baidu-ocr',
+      translationProviderId: 'builtin:mymemory',
+      myMemoryKey: 'user-key'
+    }));
+    expect(app.state.showConfig).toBe(false);
+    expect(app.state.status).toBe('配置保存成功');
   });
 
-  it('should show and hide config panel', () => {
-    const app = new OCRApp();
-    app.configPanel = { style: { display: 'none' } };
+  it('keeps the config panel open when saving for a provider test', async () => {
+    const store = createStore();
+    const app = new OCRApp({ store, providerService: createProviderService() });
+    app.state.showConfig = true;
 
-    app.showConfigPanel();
-    expect(app.configPanel.style.display).toBe('block');
+    await app.saveConfig({ ocrProviderId: 'builtin:baidu-ocr' }, false);
 
-    app.hideConfigPanel();
-    expect(app.configPanel.style.display).toBe('none');
+    expect(app.state.showConfig).toBe(true);
+    expect(store.save).toHaveBeenCalledTimes(1);
   });
 
-  it('should test config correctly', async () => {
-    const app = new OCRApp();
-    app.baiduAkInput = { value: 'test-ak' };
-    app.baiduSkInput = { value: 'test-sk' };
-    app.hideConfigPanel = vi.fn();
-    app.showStatus = vi.fn();
-    // 模拟识别成功
-    vi.spyOn(app, 'recognize').mockResolvedValue('测试成功');
-    // mock setTimeout 立即执行
-    vi.useFakeTimers();
+  it('tests the selected OCR provider without hiding the panel on failure', async () => {
+    const app = new OCRApp({ store: createStore(), providerService: createProviderService() });
+    app.state.showConfig = true;
+    app.config.ocrProviderId = 'builtin:baidu-ocr';
+    vi.spyOn(app, 'recognize').mockRejectedValue(new Error('密钥无效'));
 
-    const testPromise = app.testConfig();
-    // 保存配置时不关闭面板
-    expect(app.showStatus).toHaveBeenCalledWith('🧪 正在测试配置...');
-    expect(app.hideConfigPanel).not.toHaveBeenCalled();
+    const result = await app.testConfig();
 
-    await testPromise;
-
-    expect(app.showStatus).toHaveBeenCalledWith('✅ 配置测试成功！');
-    // 测试成功后延迟1秒关闭
-    vi.runAllTimers();
-    expect(app.hideConfigPanel).toHaveBeenCalled();
-
-    vi.useRealTimers();
+    expect(result).toBe(false);
+    expect(app.state.status).toContain('配置测试失败: 密钥无效');
+    expect(app.state.showConfig).toBe(true);
   });
 
-  it('should show error when config test fails', async () => {
-    const app = new OCRApp();
-    app.baiduAkInput = { value: 'wrong-ak' };
-    app.baiduSkInput = { value: 'wrong-sk' };
-    app.hideConfigPanel = vi.fn();
-    app.showStatus = vi.fn();
-    // 模拟识别失败 - 必须是认证相关的错误才会被认为是配置失败
-    vi.spyOn(app, 'recognize').mockRejectedValue(new Error('token获取失败：invalid client'));
+  it('shows only the text input when the translate command has no payload', () => {
+    const app = new OCRApp({ store: createStore(), providerService: createProviderService() });
+    app.initElements();
 
-    await app.testConfig();
+    app.onPluginEnter({ code: 'translate' });
 
-    expect(app.showStatus).toHaveBeenCalledWith(expect.stringContaining('❌ 配置测试失败'));
-    expect(app.hideConfigPanel).not.toHaveBeenCalled(); // 测试失败不关闭面板
+    expect(app.state.mode).toBe('translate');
+    expect(app.state.showTranslationInput).toBe(true);
+    expect(app.state.showUpload).toBe(false);
+    expect(app.state.showImage).toBe(false);
+  });
+
+  it('clears the processing view without clearing history', () => {
+    const app = new OCRApp({ store: createStore(), providerService: createProviderService() });
+    app.state.imageUrl = 'data:image/png;base64,image';
+    app.state.resultText = '识别结果';
+    app.state.showImage = true;
+    app.state.showResult = true;
+    app.history = [{ text: '历史结果', timestamp: 1 }];
+
+    app.clearAll();
+
+    expect(app.state.imageUrl).toBe('');
+    expect(app.state.resultText).toBe('');
+    expect(app.state.showImage).toBe(false);
+    expect(app.state.showResult).toBe(false);
+    expect(app.history).toHaveLength(1);
   });
 });

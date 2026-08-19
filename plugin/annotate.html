@@ -114,6 +114,10 @@
     .tb-btn svg { width: 20px; height: 20px; fill: currentColor; }
     .tb-btn-copy { background: #1a6dff; color: #fff; }
     .tb-btn-copy:hover { background: #3385ff; }
+    .screenshot-actions { display: none; align-items: center; gap: 6px; }
+    .screenshot-actions.show { display: flex; }
+    .flow-btn { width: auto; padding: 0 11px; background: #147d78; color: #fff; font-size: 12px; font-weight: 600; }
+    .flow-btn:hover { background: #0d5f5a; }
     /* ── Loading ── */
     #loading {
       position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -228,6 +232,10 @@
         <option value="40">40</option>
         <option value="48">48</option>
       </select>
+    </div>
+    <div id="screenshot-actions" class="screenshot-actions" aria-label="截图下一步">
+      <button class="tb-btn flow-btn" id="btn-ocr" type="button" title="识别当前图片">OCR</button>
+      <button class="tb-btn flow-btn" id="btn-translate" type="button" title="识别并翻译当前图片">翻译</button>
     </div>
     <div class="spacer"></div>
     <button class="tb-btn" id="btn-cancel" title="取消 (Escape)">

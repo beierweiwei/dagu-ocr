@@ -31,6 +31,7 @@ function showStatus(message) {
 const standaloneImage = new URLSearchParams(window.location.search).get('image');
 const isStandalone = !!standaloneImage;
 const returnToInput = new URLSearchParams(window.location.search).get('returnInput') === '1';
+const screenshotFlow = new URLSearchParams(window.location.search).get('screenshotFlow') === '1';
 // ── DOM refs ──
 const $ = (id) => document.getElementById(id);
 const editorContainer = $('editor-container');
@@ -52,6 +53,9 @@ const btnClear = $('btn-clear');
 const btnCopy = $('btn-copy');
 const btnCancel = $('btn-cancel');
 const closeBtn = $('close-btn');
+const screenshotActions = $('screenshot-actions');
+const btnOcr = $('btn-ocr');
+const btnTranslate = $('btn-translate');
 // ── Dialog state ──
 let pendingDialogResolve = null;
 function showDialog(title, showInput) {
@@ -418,6 +422,35 @@ function dataURLToBlob(dataURL) {
   for (var i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
   return new Blob([array], { type: mime });
 }
+
+function currentCanvasDataUrl() {
+  if (!imageEditor) return null;
+  var canvas = imageEditor._graphics.getCanvas();
+  canvas.renderAll();
+  return canvas.toDataURL({ format: 'png', multiplier: 1 });
+}
+
+function sendScreenshotAction(action) {
+  var imageUrl = currentCanvasDataUrl();
+  if (!imageUrl) return;
+
+  try {
+    if (window.opener) {
+      window.opener.postMessage({ type: 'annotateAction', action: action, imageUrl: imageUrl }, '*');
+      showStatus(action === 'ocr' ? '已将图片交给 OCR' : '已将图片交给翻译');
+      setTimeout(function() { window.close(); }, 250);
+      return;
+    }
+  } catch (error) {
+    console.warn('[annotate] 通知主窗口失败:', error);
+  }
+
+  var url = new URL('index.html', window.location.href);
+  url.searchParams.set('editorAction', action);
+  url.searchParams.set('image', imageUrl);
+  window.location.href = url.href;
+}
+
 // ── Copy to clipboard ──
 async function copyToClipboard() {
   if (!imageEditor) {
@@ -793,6 +826,8 @@ function bindToolbar() {
     saveSettings();
   });
   btnCopy.addEventListener('click', copyToClipboard);
+  if (btnOcr) btnOcr.addEventListener('click', () => sendScreenshotAction('ocr'));
+  if (btnTranslate) btnTranslate.addEventListener('click', () => sendScreenshotAction('translate'));
 
   const closeAction = () => {
     cleanup();
@@ -857,6 +892,7 @@ function handlePluginEnter(param) {
 bindToolbar();
 bindShortcuts();
 loadSettings(); // 加载保存的设置
+if (screenshotFlow && screenshotActions) screenshotActions.classList.add('show');
 if (isStandalone) {
   document.addEventListener('DOMContentLoaded', () => {
     startAnnotation(standaloneImage);

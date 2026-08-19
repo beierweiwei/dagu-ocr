@@ -1,12 +1,56 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, Page } from '@playwright/test'
 import { OcrPage } from '../../pages/OcrPage'
-import { TEST_IMAGE_1x1, TEST_CONFIG } from '../../fixtures/test-data'
+import { TEST_IMAGE_1x1 } from '../../fixtures/test-data'
+
+async function installMockZTools(page: Page) {
+  await page.addInitScript(() => {
+    ;(window as any).ztools = {
+      providers: {
+        getProviders: async (type: string) => [{
+          id: `mock-${type}`,
+          label: type === 'ocr' ? '测试 OCR 节点' : '测试翻译节点'
+        }],
+        invokeProvider: async (type: string, input: { text?: string }) => (
+          type === 'ocr' ? 'Mock OCR Result' : `Mock Translation: ${input.text || ''}`
+        )
+      },
+      copyText: (value: string) => {
+        ;(window as any).__copiedText = value
+        return true
+      }
+    }
+  })
+}
+
+async function installMicrosoftMockZTools(page: Page) {
+  await page.addInitScript(() => {
+    ;(window as any).ztools = {
+      providers: {
+        getProviders: async (type: string) => [{
+          id: `microsoft-${type}`,
+          label: type === 'ocr' ? '测试 OCR 节点' : '微软翻译'
+        }],
+        invokeProvider: async (type: string, input: { text?: string, to?: string }) => {
+          if (type === 'ocr') return 'Mock OCR Result'
+          if (input.to !== 'zh-Hans') {
+            throw new Error(`微软翻译不支持目标语言: ${input.to}`)
+          }
+          return `Microsoft Translation: ${input.text || ''}`
+        }
+      },
+      copyText: (value: string) => {
+        ;(window as any).__copiedText = value
+        return true
+      }
+    }
+  })
+}
 
 test.describe('OCR 主页面功能测试', () => {
   let ocrPage: OcrPage
-  const testImageBuffer = Buffer.from(TEST_IMAGE_1x1, 'base64')
 
   test.beforeEach(async ({ page }) => {
+    await installMockZTools(page)
     ocrPage = new OcrPage(page)
     await ocrPage.goto()
   })
@@ -18,80 +62,120 @@ test.describe('OCR 主页面功能测试', () => {
     await expect(ocrPage.status).toHaveText('')
   })
 
-  test('图片上传功能正常，预览正确显示', async () => {
+  test('图片 OCR 会从上传开始，显示预览和可编辑结果', async () => {
+    await ocrPage.configureMockProviders()
     await ocrPage.uploadImage({
       name: 'test.png',
       mimeType: 'image/png',
-      buffer: testImageBuffer
+      buffer: Buffer.from(TEST_IMAGE_1x1, 'base64')
     })
 
     await expect(ocrPage.preview).toBeVisible()
     await expect(ocrPage.previewImg).toBeVisible()
-    await expect(ocrPage.editBtn).toBeVisible() // 编辑按钮应该显示
+    await expect(ocrPage.resultArea).toBeVisible()
+    await expect(ocrPage.resultText).toHaveValue('Mock OCR Result')
+    await expect(ocrPage.editBtn).toBeVisible()
   })
 
-  test('识别结果支持翻译', async ({ page }) => {
-    await page.route('https://api.mymemory.translated.net/get**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          responseStatus: 200,
-          responseData: { translatedText: '你好' }
-        })
+  test('图片 OCR 没有剪贴板图片时显示上传面板', async ({ page }) => {
+    await page.evaluate(async () => {
+      ;(window as any).app.readClipboardImage = async () => null
+      await (window as any).app.onPluginEnter({ code: 'ocr' })
+    })
+
+    await expect(ocrPage.dropArea).toBeVisible()
+    await expect(ocrPage.preview).toBeHidden()
+  })
+
+  test('剪贴板图片会直接进入 OCR', async ({ page }) => {
+    await ocrPage.configureMockProviders()
+    await page.evaluate(async () => {
+      const blob = new Blob(['clipboard-image'], { type: 'image/png' })
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          read: async () => [{
+            types: ['image/png'],
+            getType: async () => blob
+          }]
+        }
       })
+      await (window as any).app.onPluginEnter({ code: 'ocr' })
     })
 
+    await expect(ocrPage.resultText).toHaveValue('Mock OCR Result')
+  })
+
+  test('OCR 结果可以调用已选择的翻译节点', async () => {
+    await ocrPage.configureMockProviders()
     await ocrPage.uploadImage({
       name: 'test.png',
       mimeType: 'image/png',
-      buffer: testImageBuffer
+      buffer: Buffer.from(TEST_IMAGE_1x1, 'base64')
     })
-    await ocrPage.closeConfig()
-    await ocrPage.resultText.fill('hello')
-
-    await expect(ocrPage.translateBtn).toBeVisible()
     await ocrPage.translateBtn.click()
-    await expect(ocrPage.translateResult).toHaveValue('你好')
+
+    await expect(ocrPage.translateResult).toHaveValue('Mock Translation: Mock OCR Result')
   })
 
-  test('配置页面功能正常，可以保存配置', async () => {
-    await ocrPage.openConfig()
-    await expect(ocrPage.configPanel).toBeVisible()
+  test('翻译指令无图片时显示文字输入面板并展示结果', async ({ page }) => {
+    await ocrPage.configureMockProviders()
+    await page.evaluate(async () => {
+      await (window as any).app.onPluginEnter({ code: 'translate' })
+    })
 
-    await ocrPage.saveConfig(TEST_CONFIG.baiduAk, TEST_CONFIG.baiduSk)
+    await expect(ocrPage.textInputPanel).toBeVisible()
+    await expect(ocrPage.dropArea).toBeHidden()
+    await ocrPage.textInput.fill('hello')
+    await ocrPage.translateInputBtn.click()
 
-    // 重新打开配置页面，验证值是否正确保存
-    await ocrPage.openConfig()
-    expect(await ocrPage.baiduAkInput.inputValue()).toBe(TEST_CONFIG.baiduAk)
-    expect(await ocrPage.baiduSkInput.inputValue()).toBe(TEST_CONFIG.baiduSk)
+    await expect(ocrPage.translateResult).toHaveValue('Mock Translation: hello')
   })
 
-  test('编辑按钮点击后跳转到标注页面', async ({ page }) => {
+  test('翻译语言列表包含常用语种', async ({ page }) => {
+    await ocrPage.configureMockProviders()
+    await page.evaluate(async () => {
+      await (window as any).app.onPluginEnter({ code: 'translate' })
+    })
+
+    await expect(page.locator('#sourceLangText option[value="ko"]')).toHaveCount(1)
+    await expect(page.locator('#targetLangText option[value="de"]')).toHaveCount(1)
+    await expect(page.locator('#targetLangText option[value="ru"]')).toHaveCount(1)
+  })
+
+  test('配置可以保存 Provider、密钥和语言偏好', async () => {
+    await ocrPage.openConfig()
+    await ocrPage.ocrProviderSelect.selectOption('ztools:mock-ocr')
+    await ocrPage.translationProviderSelect.selectOption('ztools:mock-translation')
+    await ocrPage.baiduAkInput.fill('test-ak')
+    await ocrPage.baiduSkInput.fill('test-sk')
+    await ocrPage.saveConfigBtn.click()
+    await expect(ocrPage.status).toContainText('配置保存成功')
+
+    await ocrPage.openConfig()
+    await expect(ocrPage.ocrProviderSelect).toHaveValue('ztools:mock-ocr')
+    await expect(ocrPage.translationProviderSelect).toHaveValue('ztools:mock-translation')
+    await expect(ocrPage.baiduAkInput).toHaveValue('test-ak')
+    await expect(ocrPage.baiduSkInput).toHaveValue('test-sk')
+  })
+
+  test('编辑按钮进入普通图片编辑器，截图动作按钮不显示', async ({ page }) => {
+    await ocrPage.configureMockProviders()
     await ocrPage.uploadImage({
       name: 'test.png',
       mimeType: 'image/png',
-      buffer: testImageBuffer
+      buffer: Buffer.from(TEST_IMAGE_1x1, 'base64')
     })
-    await ocrPage.closeConfig()
 
     await Promise.all([
       page.waitForNavigation({ url: /annotate\.html/ }),
       ocrPage.editImage()
     ])
 
-    expect(page.url()).toContain('annotate.html')
-    expect(new URL(page.url()).searchParams.get('payload')).toContain('data:image')
+    await expect(page.locator('#screenshot-actions')).toBeHidden()
   })
 
-  test('非图片文件上传显示错误提示', async ({ page }) => {
-    // 监听alert事件
-    page.on('dialog', dialog => {
-      expect(dialog.message()).toContain('请选择图片文件')
-      dialog.accept()
-    })
-
-    await ocrPage.dropArea.click()
+  test('非图片文件上传显示状态错误', async () => {
     await ocrPage.fileInput.setInputFiles({
       name: 'test.txt',
       mimeType: 'text/plain',
@@ -101,17 +185,43 @@ test.describe('OCR 主页面功能测试', () => {
     await expect(ocrPage.status).toContainText('请选择图片文件')
   })
 
-  test('清空按钮可以清除当前内容', async () => {
+  test('清空按钮可以清除当前图片和结果', async () => {
+    await ocrPage.configureMockProviders()
     await ocrPage.uploadImage({
       name: 'test.png',
       mimeType: 'image/png',
-      buffer: testImageBuffer
+      buffer: Buffer.from(TEST_IMAGE_1x1, 'base64')
     })
-    await ocrPage.closeConfig()
-
     await ocrPage.clearBtn.click()
+
     await expect(ocrPage.preview).toBeHidden()
     await expect(ocrPage.resultArea).toBeHidden()
-    expect(await ocrPage.resultText.inputValue()).toBe('')
+    await expect(ocrPage.dropArea).toBeVisible()
+  })
+})
+
+test.describe('微软翻译语言兼容', () => {
+  let ocrPage: OcrPage
+
+  test.beforeEach(async ({ page }) => {
+    await installMicrosoftMockZTools(page)
+    ocrPage = new OcrPage(page)
+    await ocrPage.goto()
+  })
+
+  test('中文目标语言使用微软支持的语言码', async ({ page }) => {
+    await ocrPage.openConfig()
+    await ocrPage.translationProviderSelect.selectOption('ztools:microsoft-translation')
+    await ocrPage.saveConfigBtn.click()
+    await expect(ocrPage.status).toContainText('配置保存成功')
+
+    await page.evaluate(async () => {
+      await (window as any).app.onPluginEnter({ code: 'translate' })
+    })
+    await ocrPage.textInput.fill('hello')
+    await ocrPage.translateInputBtn.click()
+
+    await expect(ocrPage.translateResult).toHaveValue('Microsoft Translation: hello')
+    await expect(ocrPage.status).toHaveText('翻译完成')
   })
 })

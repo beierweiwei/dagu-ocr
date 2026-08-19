@@ -1,256 +1,135 @@
-import './ocr.js';
+import { createApp } from 'vue';
+import App from './App.vue';
+import './styles.css';
+import { OCRApp } from './ocr.js';
 
-const win = globalThis.window;
-let domLoaded = false;
+const win = globalThis.window || globalThis;
 
-// ── Annotate flow: stay on index.html, use child window ──
-function startAnnotateFlow(param) {
-  // If we already have the image, open child window directly
-  if (param.type === 'img' && param.payload) {
-    openAnnotateChildWindow(param.payload);
+function hideMainWindow() {
+  if (typeof win?.ztools?.hideMainWindow === 'function') win.ztools.hideMainWindow();
+  else if (typeof win?.utools?.hideMainWindow === 'function') win.utools.hideMainWindow();
+}
+
+function showMainWindow() {
+  if (typeof win?.ztools?.showMainWindow === 'function') win.ztools.showMainWindow();
+  else if (typeof win?.utools?.showMainWindow === 'function') win.utools.showMainWindow();
+}
+
+function editorUrl(imageUrl, options = {}) {
+  const url = new URL('annotate.html', window.location.href);
+  url.searchParams.set('image', imageUrl);
+  url.searchParams.set('payload', imageUrl);
+  if (options.fromScreenshot) url.searchParams.set('screenshotFlow', '1');
+  if (options.returnInput) url.searchParams.set('returnInput', '1');
+  return url.href;
+}
+
+function openEditorWindow(imageUrl, options = {}) {
+  const url = editorUrl(imageUrl, options);
+  const createWindow = win?.ztools?.createBrowserWindow;
+  if (typeof createWindow !== 'function') {
+    window.location.href = url;
     return;
   }
 
-  // Otherwise, trigger screenshot capture
-  const hasCaptureApi = !!(
-    win?.ztools?.screenCapture || win?.utools?.screenCapture
+  const create = (width = 800, height = 600) => {
+    try {
+      const child = createWindow(url, {
+        width,
+        height,
+        frame: false,
+        title: options.fromScreenshot ? '截图编辑' : '图片编辑',
+        resizable: true,
+        webPreferences: { preload: 'preload.js' }
+      });
+      child?.show?.();
+    } catch (error) {
+      console.warn('创建编辑窗口失败:', error);
+      window.location.href = url;
+    }
+  };
+
+  hideMainWindow();
+  const image = new Image();
+  image.onload = () => create(
+    Math.max(image.naturalWidth + 24, 720),
+    Math.max(image.naturalHeight + 80, 560)
   );
-
-  if (!hasCaptureApi) {
-    // Fallback: file input picker
-    var input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.style.position = 'fixed';
-    input.style.width = '1px';
-    input.style.height = '1px';
-    input.style.opacity = '0';
-    input.onchange = function(e) {
-      if (e.target.files.length > 0) {
-        var reader = new FileReader();
-        reader.onload = function(ev) {
-          input.remove();
-          openAnnotateChildWindow(ev.target.result);
-        };
-        reader.readAsDataURL(e.target.files[0]);
-      }
-    };
-    document.body.appendChild(input);
-    input.click();
-    return;
-  }
-
-  // Hide main window, trigger screenshot
-  if (win?.ztools?.hideMainWindow) win.ztools.hideMainWindow();
-  else if (win?.utools) win.utools.hideMainWindow();
-
-  setTimeout(function() {
-    var capture = win?.ztools?.screenCapture || win?.utools?.screenCapture;
-    capture(function(imageUrl) {
-      if (!imageUrl) {
-        setTimeout(function() { exitPlugin(); }, 1000);
-        return;
-      }
-      openAnnotateChildWindow(imageUrl);
-    });
-  }, 300);
+  image.onerror = () => create();
+  image.src = imageUrl;
 }
 
-function openAnnotateChildWindow(imageUrl, returnToInput) {
-  if (win?.ztools?.createBrowserWindow) {
-    // 先加载图片获取尺寸，再用正确尺寸创建窗口
-    var img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = function() {
-      var toolbarHeight = 56;
-      var padding = 24;
-      var minToolbarWidth = 700;
+let controller;
 
-      var width = img.naturalWidth + padding;
-      var height = img.naturalHeight + toolbarHeight + padding;
-
-      var minWindowWidth = minToolbarWidth + padding;
-      if (width < minWindowWidth) width = minWindowWidth;
-
-      try {
-        var childUrl = new URL('annotate.html', window.location.href).href +
-          '?image=' + encodeURIComponent(imageUrl) +
-          (returnToInput ? '&returnInput=1' : '');
-        var childWin = win.ztools.createBrowserWindow(childUrl, {
-          width: width,
-          height: height,
-          frame: false,
-          title: '截图编辑',
-          resizable: true,
-          webPreferences: {
-            preload: 'preload.js'
-          }
-        });
-        childWin.show();
-        setTimeout(function() { exitPlugin(); }, 300);
-      } catch (e) {
-        console.warn('createBrowserWindow failed:', e);
-        fallbackRedirect(imageUrl, returnToInput);
-      }
-    };
-    img.onerror = function() {
-      try {
-        var childUrl = new URL('annotate.html', window.location.href).href +
-          '?image=' + encodeURIComponent(imageUrl) +
-          (returnToInput ? '&returnInput=1' : '');
-        var childWin = win.ztools.createBrowserWindow(childUrl, {
-          width: 800,
-          height: 600,
-          frame: false,
-          title: '截图编辑',
-          resizable: true,
-          webPreferences: {
-            preload: 'preload.js'
-          }
-        });
-        childWin.show();
-        setTimeout(function() { exitPlugin(); }, 300);
-      } catch (e) {
-        console.warn('createBrowserWindow failed:', e);
-        fallbackRedirect(imageUrl, returnToInput);
-      }
-    };
-    img.src = imageUrl;
-    return;
-  }
-
-  fallbackRedirect(imageUrl, returnToInput);
-}
-
-function fallbackRedirect(imageUrl, returnToInput) {
-  var fallbackParams = new URLSearchParams();
-  fallbackParams.set('code', 'screenshot-annotate');
-  fallbackParams.set('type', 'img');
-  fallbackParams.set('payload', imageUrl);
-  if (returnToInput) fallbackParams.set('returnInput', '1');
-  window.location.href = 'annotate.html?' + fallbackParams.toString();
-}
-
-function exitPlugin() {
-  if (win?.ztools?.outPlugin) {
-    win.ztools.outPlugin(false);
-  } else if (win?.utools) {
-    win.utools.hideMainWindow();
-  }
-}
-
-function startTranslateFlow(param) {
-  if (!domLoaded || !window.app) {
-    win.__ztoolsEnterParam = param;
-    return;
-  }
-
-  if (param.type === 'img' && param.payload) {
-    window.app.autoTranslate = true;
-    window.app.processImageUrl(param.payload);
-    window.app.recognizeAndUpdate(param.payload);
-    return;
-  }
-
-  const capture = win?.ztools?.screenCapture || win?.utools?.screenCapture;
-  if (typeof capture !== 'function') {
-    window.app.autoTranslate = true;
-    window.app.showDropArea();
-    return;
-  }
-
-  if (win?.ztools?.hideMainWindow) win.ztools.hideMainWindow();
-  else if (win?.utools) win.utools.hideMainWindow();
-
+function startScreenshotFlow() {
+  hideMainWindow();
+  controller.showStatus('正在唤起截图功能...');
   setTimeout(() => {
-    capture((imageUrl) => {
+    controller.captureScreen((imageUrl) => {
       if (!imageUrl) {
-        setTimeout(() => exitPlugin(), 1000);
+        showMainWindow();
+        controller.showStatus('已取消截图');
         return;
       }
-
-      if (win?.ztools?.showMainWindow) win.ztools.showMainWindow();
-      else if (win?.utools) win.utools.showMainWindow();
-
-      window.app.autoTranslate = true;
-      window.app.processImageUrl(imageUrl);
-      window.app.recognizeAndUpdate(imageUrl);
+      openEditorWindow(imageUrl, { fromScreenshot: true });
     });
   }, 300);
 }
+
+controller = new OCRApp({
+  win,
+  onScreenshotRequest: startScreenshotFlow,
+  onEditRequest: openEditorWindow
+});
+win.app = controller;
 
 function handlePluginEnter(param) {
-  if (param.code === 'screenshot-annotate') {
-    startAnnotateFlow(param);
-    return;
-  }
-
-  if (param.code === 'translate') {
-    startTranslateFlow(param);
-    return;
-  }
-
-  if (domLoaded && window.app) {
-    window.app.onPluginEnter(param);
-  } else {
-    win.__ztoolsEnterParam = param;
-  }
+  return controller.onPluginEnter(param);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  domLoaded = true;
-  window.app = new OCRApp();
-  window.app.initElements();
-  window.app.bindEvents();
-
-  // Wire up the static edit button (hidden by default, shown by OCRApp)
-  const editBtn = document.getElementById('edit-image-btn');
-  if (editBtn) {
-    editBtn.addEventListener('click', () => {
-      const img = document.getElementById('previewImg');
-      if (img && img.src) {
-        openAnnotateChildWindow(img.src, true);
-      }
-    });
-  }
-
-  // OCRApp.bindEvents replaces our module-level onPluginEnter handler
-  // (ZTools last-registered-wins), so re-register to stay active
-  if (win?.ztools && typeof win.ztools.onPluginEnter === 'function') {
-    win.ztools.onPluginEnter(handlePluginEnter);
-  } else if (win?.utools) {
-    win.utools.onPluginEnter(handlePluginEnter);
-  }
-
-  if (win.__ztoolsEnterParam) {
-    const param = win.__ztoolsEnterParam;
-    win.__ztoolsEnterParam = null;
-    if (param.code === 'screenshot-annotate') {
-      startAnnotateFlow(param);
-      return;
-    }
-    if (param.code === 'translate') {
-      startTranslateFlow(param);
-      return;
-    }
-    window.app.pendingPluginEnter = param;
-    window.app.processPendingPluginEnter();
-  }
-});
-
-// 监听来自标注窗口的消息
-window.addEventListener('message', (e) => {
-  if (e.data.type === 'imageEdited' && e.data.imageUrl) {
-    // 标注完成，重新识别编辑后的图片
-    if (window.app) {
-      window.app.recognizeAndUpdate(e.data.imageUrl);
-    }
-  }
-});
-
-// Top-level handler: capture plugin enter before DOM is ready
 if (win?.ztools && typeof win.ztools.onPluginEnter === 'function') {
   win.ztools.onPluginEnter(handlePluginEnter);
-} else if (win?.utools) {
+} else if (win?.utools && typeof win.utools.onPluginEnter === 'function') {
   win.utools.onPluginEnter(handlePluginEnter);
 }
+
+window.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type === 'annotateAction' && data.imageUrl) {
+    showMainWindow();
+    void controller.handleEditedImage(data.imageUrl, data.action);
+    return;
+  }
+  if (data.type === 'imageEdited' && data.imageUrl) {
+    showMainWindow();
+    void controller.handleEditedImage(data.imageUrl, 'ocr');
+  }
+});
+
+const mount = document.getElementById('app');
+if (mount) createApp(App, { controller }).mount(mount);
+controller.bindEvents();
+
+async function bootstrap() {
+  try {
+    await controller.initialize();
+    const params = new URLSearchParams(window.location.search);
+    const editorAction = params.get('editorAction');
+    const editorImage = params.get('image');
+    if (editorAction && editorImage) {
+      showMainWindow();
+      await controller.handleEditedImage(editorImage, editorAction);
+      return;
+    }
+
+    if (win.__ztoolsEnterParam) {
+      const param = win.__ztoolsEnterParam;
+      win.__ztoolsEnterParam = null;
+      await controller.onPluginEnter(param);
+    }
+  } catch (error) {
+    controller.showStatus(`初始化失败: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+void bootstrap();

@@ -19,9 +19,14 @@ export class OcrPage {
   readonly configBtn: Locator
   readonly configPanel: Locator
   readonly closeConfigBtn: Locator
+  readonly ocrProviderSelect: Locator
+  readonly translationProviderSelect: Locator
   readonly baiduAkInput: Locator
   readonly baiduSkInput: Locator
   readonly saveConfigBtn: Locator
+  readonly textInputPanel: Locator
+  readonly textInput: Locator
+  readonly translateInputBtn: Locator
   readonly historyToggle: Locator
   readonly historyList: Locator
 
@@ -44,9 +49,14 @@ export class OcrPage {
     this.configBtn = page.locator('#configBtn')
     this.configPanel = page.locator('#configPanel')
     this.closeConfigBtn = page.locator('#closeConfigBtn')
+    this.ocrProviderSelect = page.locator('#ocrProviderSelect')
+    this.translationProviderSelect = page.locator('#translationProviderSelect')
     this.baiduAkInput = page.locator('#baiduAk')
     this.baiduSkInput = page.locator('#baiduSk')
     this.saveConfigBtn = page.locator('#saveConfigBtn')
+    this.textInputPanel = page.locator('#textInputPanel')
+    this.textInput = page.locator('#textInput')
+    this.translateInputBtn = page.locator('#translateInputBtn')
     this.historyToggle = page.locator('#historyToggle')
     this.historyList = page.locator('#historyList')
   }
@@ -91,8 +101,10 @@ export class OcrPage {
   }
 
   async closeConfig() {
-    await this.closeConfigBtn.click()
-    await this.configPanel.waitFor({ state: 'hidden' })
+    if (await this.configPanel.isVisible()) {
+      await this.closeConfigBtn.click()
+      await this.configPanel.waitFor({ state: 'hidden' })
+    }
   }
 
   async openConfig() {
@@ -110,6 +122,13 @@ export class OcrPage {
     await this.saveConfigBtn.click()
     await expect(this.status).toContainText('配置保存成功')
     await this.configPanel.waitFor({ state: 'hidden' })
+  }
+
+  async configureMockProviders() {
+    await this.openConfig()
+    await this.ocrProviderSelect.selectOption('ztools:mock-ocr')
+    await this.translationProviderSelect.selectOption('ztools:mock-translation')
+    await this.saveConfig()
   }
 
   async copyHistoryItem(index: number) {

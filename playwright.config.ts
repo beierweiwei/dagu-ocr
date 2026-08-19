@@ -1,7 +1,27 @@
 import { defineConfig, devices } from '@playwright/test'
+import { existsSync } from 'node:fs'
 
 const e2ePort = process.env.DAGU_OCR_E2E_PORT || '4173'
 const e2eServerUrl = `http://127.0.0.1:${e2ePort}`
+
+function systemChrome() {
+  const configuredPath = process.env.DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH
+  if (configuredPath && existsSync(configuredPath)) {
+    return { browserName: 'chromium' as const, executablePath: configuredPath }
+  }
+
+  const candidates = process.platform === 'win32'
+    ? [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      `${process.env.LOCALAPPDATA || ''}\\Google\\Chrome\\Application\\chrome.exe`
+    ]
+    : []
+  const executablePath = candidates.find((candidate) => existsSync(candidate))
+  return { browserName: 'chromium' as const, executablePath }
+}
+
+const defaultBrowser = systemChrome()
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -28,18 +48,19 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
+        browserName: defaultBrowser.browserName,
         permissions: ['clipboard-read', 'clipboard-write'], // 授予剪贴板权限
         launchOptions: {
-          ...(process.env.DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH
-            ? { executablePath: process.env.DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH }
-            : {}),
-          args: [
-            '--allow-file-access-from-files',
-            '--use-fake-ui-for-media-stream', // 模拟媒体流权限，用于截图测试
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage'
-          ]
+          ...(defaultBrowser.executablePath ? { executablePath: defaultBrowser.executablePath } : {}),
+          ...(defaultBrowser.browserName === 'chromium' ? {
+            args: [
+              '--allow-file-access-from-files',
+              '--use-fake-ui-for-media-stream', // 模拟媒体流权限，用于截图测试
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage'
+            ]
+          } : {})
         }
       },
     },

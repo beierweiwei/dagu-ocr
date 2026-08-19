@@ -1,24 +1,19 @@
 # 大古 OCR
 
-ZTools OCR 插件，支持图片识别、截图识别、截图标注和 OCR 结果翻译。
+ZTools OCR 插件，提供截图编辑、图片 OCR、文字翻译和普通图片编辑。
 
-## 目录结构
+## 入口
 
-- `plugin/`：唯一的插件源码与构建目录。
-- `plugin/dist/`：唯一的插件发布目录，只包含构建后的运行时文件。
-- `tests/`：Vitest 单元测试、Playwright E2E 测试和测试页面对象。
-- `docs/`：需求、测试和修复记录。
-- `.github/`：持续集成配置。
+- `截图`：截图后进入编辑器，可继续 OCR 或翻译。
+- `图片 OCR`：图片输入直接识别；没有剪贴板图片时上传。
+- `翻译文字`：输入文字后翻译。
+- `编辑图片`：从 ZTools 图片输入或上传面板进入普通编辑器。
 
-## 翻译
+## Provider 与配置
 
-识别完成后可以选择源语言和目标语言，点击“翻译”查看翻译结果。插件支持三层回退：
+OCR 和翻译分别选择一个 Provider，失败不会自动切换。插件会发现 ZTools 提供的同类型 Provider，也支持内置百度、阿里和 MyMemory。MyMemory key 必须由用户配置。
 
-- 配置百度翻译 APP ID 和密钥时优先使用百度翻译。
-- 配置阿里云 OCR 的 AccessKey ID 和 Secret 后可复用阿里云机器翻译。
-- 未配置上述服务或服务失败时使用 MyMemory 免费翻译。
-
-“截图翻译”和图片右键菜单的“翻译图片”会在 OCR 完成后自动翻译。
+偏好保存到 ZTools `dbStorage`，密钥默认只保存在本机。开启“同步密钥”后，密钥才会写入可随备份同步的副本；历史记录始终保存在本机。
 
 ## 开发与测试
 
@@ -27,21 +22,13 @@ npm install
 npm run dev
 npm test
 npm run test:e2e:chromium
-```
-
-构建插件：
-
-```bash
 npm run build
 ```
 
-构建产物位于 `plugin/dist/`。该目录被 Git 忽略，不提交到源码仓库。
+E2E 使用系统安装的 Chrome。可通过 `DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH` 指定 Chrome 可执行文件路径；默认检测常见 Windows Chrome 安装路径，不下载 Playwright 浏览器。
 
-## 发布
+构建产物位于 `plugin/dist/`，发布命令为：
 
 ```bash
 npm run publish:plugin
 ```
-
-该命令会先构建插件，再从 `plugin/dist/` 执行 `ztools publish`。因此发布到插件中心的内容只包括
-`plugin/dist/` 中的 HTML、JS、CSS、静态资源、`plugin.json`、`preload.js`、图标和许可证；根目录的测试、文档、CI、源码和开发依赖不会进入插件目录。
