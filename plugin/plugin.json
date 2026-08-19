@@ -10,8 +10,8 @@
   "development": {
     "main": "http://127.0.0.1:5173/index.html"
   },
-  "width": 780,
-  "height": 600,
+  "width": 960,
+  "height": 640,
   "categories": ["media"],
   "features": [
     {

@@ -135,3 +135,63 @@ test.describe('完整流程集成测试', () => {
     expect(await ocrPage.baiduSkInput.inputValue()).toBe(testSk)
   })
 })
+
+test.describe('截图子窗口回传流程', () => {
+  test('点击 OCR 后不重新显示已隐藏的原主窗口', async ({ page }) => {
+    const captureImage = `data:image/png;base64,${TEST_IMAGE_1x1}`
+    const showMainWindowKey = '__daguOcrShowMainWindowCalls'
+    const createWindowKey = '__daguOcrCreateBrowserWindowCalls'
+
+    await page.context().addInitScript(({ captureImage, showMainWindowKey, createWindowKey }) => {
+      if (localStorage.getItem(showMainWindowKey) === null) localStorage.setItem(showMainWindowKey, '0')
+      if (localStorage.getItem(createWindowKey) === null) localStorage.setItem(createWindowKey, '0')
+      localStorage.setItem('dagu-ocr.preferences', JSON.stringify({
+        ocrProviderId: 'ztools:mock-ocr',
+        translationProviderId: 'ztools:mock-translation',
+        sourceLang: 'auto',
+        targetLang: 'zh',
+        syncSecrets: false
+      }))
+
+      window.ztools = {
+        providers: {
+          getProviders: async (type) => [{ id: `mock-${type}`, label: `测试 ${type}` }],
+          invokeProvider: async (type, input) => (
+            type === 'ocr' ? 'Mock OCR Result' : `Mock Translation: ${input.text || ''}`
+          )
+        },
+        copyText: () => true,
+        hideMainWindow: () => {},
+        showMainWindow: () => {
+          const count = Number(localStorage.getItem(showMainWindowKey) || '0') + 1
+          localStorage.setItem(showMainWindowKey, String(count))
+        },
+        screenCapture: (callback) => callback(captureImage),
+        createBrowserWindow: (url) => {
+          const count = Number(localStorage.getItem(createWindowKey) || '0') + 1
+          localStorage.setItem(createWindowKey, String(count))
+          const child = window.open(url, '_blank', 'noopener,width=800,height=600')
+          if (!child) throw new Error('截图编辑子窗口未创建')
+          return { show: () => {} }
+        }
+      }
+    }, { captureImage, showMainWindowKey, createWindowKey })
+
+    await page.goto('/index.html')
+    await page.waitForLoadState('networkidle')
+
+    const childPromise = page.waitForEvent('popup')
+    await page.evaluate(() => window.app.onPluginEnter({ code: 'screenshot' }))
+    const child = await childPromise
+    await child.waitForLoadState('networkidle')
+    await expect(child.locator('#btn-ocr')).toBeVisible()
+    expect(await child.evaluate(() => window.opener === null)).toBe(true)
+    expect(await page.evaluate((key) => localStorage.getItem(key), createWindowKey)).toBe('1')
+
+    await child.locator('#btn-ocr').click()
+    await child.waitForURL(/index\.html.*editorAction=ocr/)
+    await expect(child.locator('#resultText')).toHaveValue('Mock OCR Result')
+
+    expect(await page.evaluate((key) => localStorage.getItem(key), showMainWindowKey)).toBe('0')
+  })
+})

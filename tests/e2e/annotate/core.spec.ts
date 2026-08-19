@@ -24,6 +24,63 @@ test.describe('图片标注页面核心功能测试', () => {
     await expect(annotatePage.btnCancel).toBeVisible()
   })
 
+  test('样式控件折叠在菜单中，颜色和线宽仍可调整', async () => {
+    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+
+    await expect(annotatePage.styleMenu).toBeVisible()
+    await expect(annotatePage.colorButtons.first()).toBeHidden()
+
+    await annotatePage.styleMenuTrigger.click()
+    await expect(annotatePage.colorButtons.first()).toBeVisible()
+    await annotatePage.blueColorButton.click()
+    await expect(annotatePage.blueColorButton).toHaveClass(/active/)
+
+    await annotatePage.lineWidthRange.evaluate((element) => {
+      const input = element as HTMLInputElement
+      input.value = '7'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await expect(annotatePage.lineWidthValue).toHaveText('7')
+  })
+
+  test('720px 窄窗口工具栏不产生横向溢出', async ({ page }) => {
+    await page.setViewportSize({ width: 720, height: 560 })
+    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+
+    const dimensions = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      toolbarWidth: document.querySelector('#toolbar')?.getBoundingClientRect().width || 0
+    }))
+
+    expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth)
+    expect(dimensions.toolbarWidth).toBe(dimensions.clientWidth)
+  })
+
+  test('更窄的截图窗口不会裁切底部操作按钮', async ({ page }) => {
+    await page.setViewportSize({ width: 600, height: 500 })
+    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+
+    const layout = await page.evaluate(() => {
+      const selectors = ['#style-menu-trigger', '#btn-ocr', '#btn-translate', '#btn-cancel', '#btn-copy']
+      return selectors.map((selector) => {
+        const element = document.querySelector(selector)
+        const box = element?.getBoundingClientRect()
+        const hit = box ? document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) : null
+        return {
+          selector,
+          right: box?.right || 0,
+          hit: hit?.closest(selector)?.id || hit?.id || ''
+        }
+      })
+    })
+
+    for (const item of layout) {
+      expect(item.right, item.selector).toBeLessThanOrEqual(600)
+      expect(item.hit, item.selector).toBe(item.selector.slice(1))
+    }
+  })
+
   test('通过URL参数加载图片成功', async () => {
     await annotatePage.gotoWithImage(TEST_IMAGE_1x1)
     await expect(annotatePage.editorContainer).toBeVisible()

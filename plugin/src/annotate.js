@@ -56,6 +56,9 @@ const closeBtn = $('close-btn');
 const screenshotActions = $('screenshot-actions');
 const btnOcr = $('btn-ocr');
 const btnTranslate = $('btn-translate');
+const styleMenu = $('style-menu');
+const currentColorSwatch = $('currentColorSwatch');
+const customColorInput = $('customColorInput');
 // ── Dialog state ──
 let pendingDialogResolve = null;
 function showDialog(title, showInput) {
@@ -398,10 +401,7 @@ function loadSettings() {
   const savedLineWidth = localStorage.getItem('annotate_line_width');
   const savedFontSize = localStorage.getItem('annotate_font_size');
   if (savedColor) {
-    currentColor = savedColor;
-    document.querySelectorAll('.color-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.color === savedColor);
-    });
+    setCurrentColor(savedColor, false);
   }
   if (savedLineWidth) {
     currentLineWidth = parseInt(savedLineWidth);
@@ -412,7 +412,90 @@ function loadSettings() {
     currentFontSize = parseInt(savedFontSize);
     fontSizeSelect.value = currentFontSize;
   }
+  updateColorPreview();
 }
+
+function updateColorPreview() {
+  if (currentColorSwatch) currentColorSwatch.style.backgroundColor = currentColor;
+  if (customColorInput && /^#[0-9a-f]{6}$/i.test(currentColor)) customColorInput.value = currentColor;
+}
+
+function setCurrentColor(color, persist = true) {
+  if (!color) return;
+  currentColor = color;
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.color === currentColor);
+  });
+  updateColorPreview();
+  if (persist) saveSettings();
+}
+
+const EDITOR_PADDING = 24;
+const MIN_CANVAS_SIZE = 200;
+const EDITOR_WINDOW_MIN_WIDTH = 860;
+const EDITOR_WINDOW_MIN_HEIGHT = 640;
+const EDITOR_WINDOW_MAX_WIDTH = 1280;
+const EDITOR_WINDOW_MAX_HEIGHT = 760;
+
+function editorViewport() {
+  return {
+    width: Math.max((editorContainer?.clientWidth || window.innerWidth) - EDITOR_PADDING, 1),
+    height: Math.max((editorContainer?.clientHeight || window.innerHeight) - EDITOR_PADDING, 1)
+  };
+}
+
+function canvasDisplaySize(width, height) {
+  const viewport = editorViewport();
+  const scale = Math.min(viewport.width / width, viewport.height / height, 1);
+  let displayWidth = Math.max(Math.floor(width * scale), 1);
+  let displayHeight = Math.max(Math.floor(height * scale), 1);
+  const minimum = Math.min(MIN_CANVAS_SIZE, viewport.width, viewport.height);
+
+  if (minimum > 0 && (displayWidth < minimum || displayHeight < minimum)) {
+    const scaleUp = Math.min(
+      minimum / displayWidth,
+      minimum / displayHeight,
+      viewport.width / displayWidth,
+      viewport.height / displayHeight
+    );
+    displayWidth = Math.floor(displayWidth * scaleUp);
+    displayHeight = Math.floor(displayHeight * scaleUp);
+  }
+
+  return { width: displayWidth, height: displayHeight, viewport };
+}
+
+function fitEditorCanvas() {
+  if (!imageEditor) return;
+  const fabricCanvas = imageEditor._graphics.getCanvas();
+  const size = canvasDisplaySize(fabricCanvas.getWidth(), fabricCanvas.getHeight());
+  const canvasElement = fabricCanvas.getElement();
+  if (canvasElement) {
+    canvasElement.style.width = size.width + 'px';
+    canvasElement.style.height = size.height + 'px';
+  }
+
+  const canvases = editorContainer.querySelectorAll(
+    '.tui-image-editor-canvas-container, .tui-image-editor-canvas-container canvas, .canvas-container, .canvas-container canvas'
+  );
+  canvases.forEach((element) => {
+    element.style.maxWidth = '';
+    element.style.maxHeight = '';
+  });
+
+  const canvasContainer = editorContainer.querySelector('.tui-image-editor-canvas-container')
+    || editorContainer.querySelector('.canvas-container');
+  if (canvasContainer) {
+    canvasContainer.style.width = size.width + 'px';
+    canvasContainer.style.height = size.height + 'px';
+  }
+  fabricCanvas.renderAll();
+}
+
+function handleEditorResize() {
+  window.requestAnimationFrame(fitEditorCanvas);
+}
+
 // ── DataURL to Blob conversion ──
 function dataURLToBlob(dataURL) {
   var parts = dataURL.split(',');
@@ -530,6 +613,7 @@ async function copyToClipboard() {
 // ── Exit / Cleanup ──
 function cleanup() {
   try {
+    window.removeEventListener('resize', handleEditorResize);
     if (imageEditor) {
       removeDrawingListeners();
       imageEditor.destroy();
@@ -561,30 +645,6 @@ function startAnnotation(imageUrl) {
       url: imageUrl
     };
 
-    const toolbarHeight = 56;
-    const padding = 24; // 上下左右各 12px
-    const minToolbarWidth = 700;
-
-    // canvas 显示尺寸 = 窗口可用空间（图片在窗口内完整显示）
-    // 窗口大小 = 图片大小 + padding + toolbar，由 createBrowserWindow 设置
-    // 所以 canvas 显示尺寸 = 窗口大小 - padding - toolbar
-    const availW = window.innerWidth;
-    const availH = window.innerHeight - toolbarHeight;
-    const scale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight, 1);
-    let displayW = Math.floor(img.naturalWidth * scale);
-    let displayH = Math.floor(img.naturalHeight * scale);
-
-    // 保证最小尺寸
-    const MIN_SIZE = 200;
-    if (displayW < MIN_SIZE || displayH < MIN_SIZE) {
-      const scaleUp = Math.max(MIN_SIZE / displayW, MIN_SIZE / displayH);
-      displayW = Math.floor(displayW * scaleUp);
-      displayH = Math.floor(displayH * scaleUp);
-    }
-
-    // 窗口大小由 createBrowserWindow 在创建时决定
-    // ztools 子窗口没有 setWindowSize API，只能依赖创建时的尺寸
-
     // 等待窗口调整完成后再加载编辑器
     setTimeout(() => {
       if (loadingEl) loadingEl.classList.remove('show');
@@ -596,48 +656,19 @@ function startAnnotation(imageUrl) {
         });
         imageEditor = editor;
         win.imageEditor = editor;
+        window.addEventListener('resize', handleEditorResize);
         editor.loadImageFromURL(imageUrl, 'annotated-image')
           .then(() => {
             const fabricCanvas = editor._graphics.getCanvas();
             // canvas 逻辑尺寸保持图片原始大小，保证编辑精度
             const imgW = fabricCanvas.getWidth();
             const imgH = fabricCanvas.getHeight();
-
-            // 用窗口可用空间（CSS 像素）计算 CSS 显示尺寸
-            const availW = window.innerWidth;
-            const availH = window.innerHeight - toolbarHeight;
-            const cssScale = Math.min(availW / imgW, availH / imgH, 1);
-            let cssW = Math.floor(imgW * cssScale);
-            let cssH = Math.floor(imgH * cssScale);
-            if (cssW < MIN_SIZE || cssH < MIN_SIZE) {
-              const scaleUp = Math.max(MIN_SIZE / cssW, MIN_SIZE / cssH);
-              cssW = Math.floor(cssW * scaleUp);
-              cssH = Math.floor(cssH * scaleUp);
-            }
-
-            // 通过 CSS 缩放显示，不改变 canvas 逻辑尺寸
-            const canvasElement = fabricCanvas.getElement();
-            if (canvasElement) {
-              canvasElement.style.width = cssW + 'px';
-              canvasElement.style.height = cssH + 'px';
-            }
-            // 移除tui的最大尺寸限制
-            const canvases = editorContainer.querySelectorAll('.tui-image-editor-canvas-container, .tui-image-editor-canvas-container canvas, .canvas-container, .canvas-container canvas');
-            canvases.forEach(function(el) {
-              el.style.maxWidth = '';
-              el.style.maxHeight = '';
-            });
-            // 设置容器尺寸
-            const canvasContainer = editorContainer.querySelector('.tui-image-editor-canvas-container') || editorContainer.querySelector('.canvas-container');
-            if (canvasContainer) {
-              canvasContainer.style.width = cssW + 'px';
-              canvasContainer.style.height = cssH + 'px';
-            }
-            fabricCanvas.renderAll();
+            fitEditorCanvas();
+            const size = canvasDisplaySize(imgW, imgH);
             console.log('[annotate] DPI:', window.devicePixelRatio,
-              'cssDisplay:', cssW, 'x', cssH,
+              'cssDisplay:', size.width, 'x', size.height,
               'canvasLogical:', imgW, 'x', imgH,
-              'window:', availW, 'x', availH);
+              'editor:', size.viewport.width, 'x', size.viewport.height);
             switchMode('select');
             annotationInProgress = false;
             showStatus('图片加载完成');
@@ -674,13 +705,14 @@ function openAnnotationWindow(imageUrl) {
   img.onload = () => {
     const toolbarHeight = 56;
     const padding = 24;
-    const minToolbarWidth = 700;
-
-    let width = img.naturalWidth + padding;
-    let height = img.naturalHeight + toolbarHeight + padding;
-
-    const minWindowWidth = minToolbarWidth + padding;
-    if (width < minWindowWidth) width = minWindowWidth;
+    const width = Math.max(
+      Math.min(img.naturalWidth + padding, EDITOR_WINDOW_MAX_WIDTH),
+      EDITOR_WINDOW_MIN_WIDTH
+    );
+    const height = Math.max(
+      Math.min(img.naturalHeight + toolbarHeight + padding, EDITOR_WINDOW_MAX_HEIGHT),
+      EDITOR_WINDOW_MIN_HEIGHT
+    );
 
     try {
       const baseUrl = window.location.origin + window.location.pathname;
@@ -711,8 +743,8 @@ function openAnnotationWindow(imageUrl) {
       var childUrl = baseUrl + '?image=' + encodeURIComponent(imageUrl) +
         (returnToInput ? '&returnInput=1' : '');
       const childWin = win.ztools.createBrowserWindow(childUrl, {
-        width: 800,
-        height: 600,
+        width: EDITOR_WINDOW_MIN_WIDTH,
+        height: EDITOR_WINDOW_MIN_HEIGHT,
         frame: false,
         title: '截图编辑',
         resizable: true,
@@ -805,15 +837,13 @@ function bindToolbar() {
   btnUndo.addEventListener('click', undo);
   btnRedo.addEventListener('click', redo);
   btnClear.addEventListener('click', clearAnnotations);
-  // 颜色选择按钮事件
+  // 颜色选择和样式控件事件
   document.querySelectorAll('.color-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentColor = btn.dataset.color;
-      saveSettings();
+      setCurrentColor(btn.dataset.color);
     });
   });
+  if (customColorInput) customColorInput.addEventListener('input', () => setCurrentColor(customColorInput.value));
   // 线条宽度拖动条事件
   lineWidthRange.addEventListener('input', () => {
     currentLineWidth = parseInt(lineWidthRange.value);
@@ -824,6 +854,19 @@ function bindToolbar() {
   fontSizeSelect.addEventListener('change', () => {
     currentFontSize = parseInt(fontSizeSelect.value);
     saveSettings();
+  });
+  document.querySelectorAll('.toolbar-menu').forEach(menu => {
+    menu.addEventListener('toggle', () => {
+      if (!menu.open) return;
+      document.querySelectorAll('.toolbar-menu').forEach(other => {
+        if (other !== menu) other.removeAttribute('open');
+      });
+    });
+  });
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.toolbar-menu')) {
+      document.querySelectorAll('.toolbar-menu[open]').forEach(menu => menu.removeAttribute('open'));
+    }
   });
   btnCopy.addEventListener('click', copyToClipboard);
   if (btnOcr) btnOcr.addEventListener('click', () => sendScreenshotAction('ocr'));
@@ -872,6 +915,7 @@ function bindShortcuts() {
       } else if (isMosaicMode) {
         switchMode('select');
       } else {
+        if (styleMenu?.open) styleMenu.removeAttribute('open');
         switchMode('select');
       }
     }

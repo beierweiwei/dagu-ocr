@@ -71,6 +71,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="header-actions">
         <span class="mode-label">{{ state.mode === 'translate' ? '文字翻译' : state.mode === 'edit' ? '编辑图片' : '图片 OCR' }}</span>
+        <button id="historyToggle" class="icon-button" type="button" title="查看识别历史" :aria-expanded="state.historyExpanded" @click="props.controller.toggleHistory">历史</button>
         <button id="configBtn" class="icon-button" type="button" title="打开配置" @click="props.controller.showConfigPanel()">设置</button>
       </div>
     </header>
@@ -128,9 +129,15 @@ onBeforeUnmount(() => {
       <p>{{ state.mode === 'edit' ? '编辑完成后可复制图片' : '支持 PNG、JPG、GIF 等常见格式，也可直接粘贴' }}</p>
     </section>
 
-    <section v-if="state.showImage" class="workspace-grid">
+    <section v-if="state.showImage" class="workspace-grid" :class="{ 'has-translation': state.showTranslateResult }">
       <div id="preview" class="preview" :class="{ show: state.showImage }">
-        <div class="preview-label">当前图片</div>
+        <div class="preview-heading">
+          <div>
+            <span class="eyebrow">IMAGE</span>
+            <span class="preview-label">当前图片</span>
+          </div>
+          <span class="preview-badge">预览</span>
+        </div>
         <div class="preview-frame">
           <img id="previewImg" :src="state.imageUrl" alt="待处理图片">
         </div>
@@ -140,17 +147,10 @@ onBeforeUnmount(() => {
       <div v-if="state.showResult" id="resultArea" class="result-area" :class="{ show: state.showResult }">
         <div class="result-heading">
           <div>
-            <span class="eyebrow">OCR RESULT</span>
-            <h2>识别结果</h2>
+            <span class="eyebrow">{{ state.showTranslateResult ? 'TRANSLATION' : 'OCR RESULT' }}</span>
+            <h2>{{ state.showTranslateResult ? '原文与译文' : '识别结果' }}</h2>
           </div>
           <span v-if="state.busy" class="busy-dot">处理中</span>
-        </div>
-        <textarea id="resultText" :value="state.resultText" placeholder="识别结果会显示在这里，可直接编辑" @input="props.controller.setResultValue($event.target.value)"></textarea>
-        <div class="actions-row">
-          <button id="confirmBtn" class="primary-button" type="button" @click="props.controller.confirmResult">复制结果</button>
-          <button id="copyBtn" class="secondary-button" type="button" @click="props.controller.copyResult">复制文本</button>
-          <button id="translateBtn" class="secondary-button accent-button" type="button" :disabled="state.busy" @click="translateResult">翻译</button>
-          <button id="clearBtn" class="ghost-button" type="button" @click="props.controller.clearAll">清空</button>
         </div>
 
         <div class="translation-controls" aria-label="翻译语言">
@@ -167,12 +167,35 @@ onBeforeUnmount(() => {
           </select>
         </div>
 
-        <div v-if="state.showTranslateResult" id="translateResultArea" class="translate-result-area show">
-          <div class="result-heading compact-heading">
-            <h3>翻译结果</h3>
-            <button id="copyTranslateBtn" class="text-button" type="button" @click="props.controller.copyTranslateResult">复制翻译</button>
-          </div>
-          <textarea id="translateResult" :value="state.translateResult" placeholder="翻译结果会显示在这里" @input="props.controller.setTranslateValue($event.target.value)"></textarea>
+        <div class="text-comparison" :class="{ 'with-translation': state.showTranslateResult }">
+          <section id="sourceTextPane" class="text-pane source-pane" aria-labelledby="sourcePaneTitle">
+            <div class="pane-heading">
+              <div>
+                <span class="pane-label">原文</span>
+                <h3 id="sourcePaneTitle">OCR 结果</h3>
+              </div>
+              <span class="pane-meta">可编辑</span>
+            </div>
+            <textarea id="resultText" :value="state.resultText" placeholder="识别结果会显示在这里，可直接编辑" @input="props.controller.setResultValue($event.target.value)"></textarea>
+          </section>
+
+          <section v-if="state.showTranslateResult" id="translateResultArea" class="text-pane translation-pane translate-result-area show" aria-labelledby="translationPaneTitle">
+            <div class="pane-heading">
+              <div>
+                <span class="pane-label">译文</span>
+                <h3 id="translationPaneTitle">{{ state.config.targetLang }}</h3>
+              </div>
+              <button id="copyTranslateBtn" class="text-button" type="button" @click="props.controller.copyTranslateResult">复制译文</button>
+            </div>
+            <textarea id="translateResult" :value="state.translateResult" placeholder="翻译结果会显示在这里" @input="props.controller.setTranslateValue($event.target.value)"></textarea>
+          </section>
+        </div>
+
+        <div class="actions-row">
+          <button id="confirmBtn" class="primary-button" type="button" @click="props.controller.confirmResult">复制结果</button>
+          <button id="copyBtn" class="secondary-button" type="button" @click="props.controller.copyResult">复制文本</button>
+          <button id="translateBtn" class="secondary-button accent-button" type="button" :disabled="state.busy" @click="translateResult">翻译</button>
+          <button id="clearBtn" class="ghost-button" type="button" @click="props.controller.clearAll">清空</button>
         </div>
       </div>
     </section>
@@ -182,27 +205,31 @@ onBeforeUnmount(() => {
       <p>从 ZTools 传入图片或文字，处理结果会显示在这里。</p>
     </section>
 
-    <section class="history-section" aria-label="识别历史">
-      <div class="section-heading">
-        <div>
-          <span class="eyebrow">HISTORY</span>
-          <h2>最近识别</h2>
-        </div>
-        <button id="historyToggle" class="text-button" type="button" :aria-expanded="state.historyExpanded" @click="props.controller.toggleHistory">{{ state.historyExpanded ? '收起' : '展开' }}</button>
-      </div>
-      <div v-if="state.historyExpanded" id="historyPanel" class="history-panel show">
-        <div v-if="state.history.length" id="historyList" class="history-list">
-          <button v-for="item in state.history" :key="item.timestamp + item.text" class="history-item" type="button" @click="props.controller.copyHistoryItem(item)">{{ item.text }}</button>
-        </div>
-        <p v-else id="historyEmpty" class="history-empty">暂无识别记录</p>
-        <button id="clearHistoryBtn" class="text-button danger-text" type="button" @click="props.controller.clearHistory">清空历史</button>
-      </div>
-    </section>
-
     <div id="loading" class="loading" :class="{ show: state.busy }" role="status" aria-live="polite">
       <span class="loading-spinner" aria-hidden="true"></span>{{ state.busyLabel || '处理中' }}
     </div>
     <p id="status" class="status" role="status" aria-live="polite">{{ state.status }}</p>
+
+    <div v-if="state.historyExpanded" id="historyPanel" class="history-overlay" role="dialog" aria-modal="true" aria-labelledby="historyTitle" @click.self="props.controller.toggleHistory">
+      <section class="history-dialog">
+        <header class="history-dialog-header">
+          <div>
+            <span class="eyebrow">HISTORY</span>
+            <h2 id="historyTitle">最近识别</h2>
+          </div>
+          <button id="closeHistoryBtn" class="icon-button" type="button" title="关闭历史" @click="props.controller.toggleHistory">关闭</button>
+        </header>
+        <div class="history-dialog-content">
+          <div v-if="state.history.length" id="historyList" class="history-list">
+            <button v-for="item in state.history" :key="item.timestamp + item.text" class="history-item" type="button" @click="props.controller.copyHistoryItem(item)">{{ item.text }}</button>
+          </div>
+          <p v-else id="historyEmpty" class="history-empty">暂无识别记录</p>
+        </div>
+        <footer class="history-dialog-footer">
+          <button id="clearHistoryBtn" class="text-button danger-text" type="button" @click="props.controller.clearHistory">清空历史</button>
+        </footer>
+      </section>
+    </div>
 
     <div v-if="state.showConfig" id="configPanel" class="config-overlay" role="dialog" aria-modal="true" aria-labelledby="configTitle">
       <section class="config-panel">

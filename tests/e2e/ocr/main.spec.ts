@@ -106,7 +106,7 @@ test.describe('OCR 主页面功能测试', () => {
     await expect(ocrPage.resultText).toHaveValue('Mock OCR Result')
   })
 
-  test('OCR 结果可以调用已选择的翻译节点', async () => {
+  test('OCR 结果可以调用已选择的翻译节点', async ({ page }) => {
     await ocrPage.configureMockProviders()
     await ocrPage.uploadImage({
       name: 'test.png',
@@ -116,6 +116,15 @@ test.describe('OCR 主页面功能测试', () => {
     await ocrPage.translateBtn.click()
 
     await expect(ocrPage.translateResult).toHaveValue('Mock Translation: Mock OCR Result')
+    await expect(page.locator('.text-comparison.with-translation')).toBeVisible()
+
+    const sourceBox = await page.locator('#sourceTextPane').boundingBox()
+    const translationBox = await page.locator('#translateResultArea').boundingBox()
+    expect(sourceBox).not.toBeNull()
+    expect(translationBox).not.toBeNull()
+    expect(translationBox!.x).toBeGreaterThan(sourceBox!.x)
+    expect(translationBox!.height).toBeGreaterThanOrEqual(240)
+    expect(Math.abs(translationBox!.height - sourceBox!.height)).toBeLessThanOrEqual(2)
   })
 
   test('翻译指令无图片时显示文字输入面板并展示结果', async ({ page }) => {
@@ -197,6 +206,35 @@ test.describe('OCR 主页面功能测试', () => {
     await expect(ocrPage.preview).toBeHidden()
     await expect(ocrPage.resultArea).toBeHidden()
     await expect(ocrPage.dropArea).toBeVisible()
+  })
+
+  test('较矮的宿主窗口仍能看到结果操作，历史从顶部按钮弹出', async ({ page }) => {
+    await page.setViewportSize({ width: 780, height: 520 })
+    await ocrPage.configureMockProviders()
+    await ocrPage.uploadImage({
+      name: 'test.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(TEST_IMAGE_1x1, 'base64')
+    })
+
+    const layout = await page.evaluate(() => {
+      const actions = document.querySelector('.actions-row')?.getBoundingClientRect()
+      const history = document.querySelector('#historyToggle')?.getBoundingClientRect()
+      return {
+        viewportHeight: window.innerHeight,
+        actionsBottom: actions?.bottom || 0,
+        historyTop: history?.top || 0
+      }
+    })
+
+    expect(layout.actionsBottom).toBeLessThanOrEqual(layout.viewportHeight)
+    expect(layout.historyTop).toBeLessThan(100)
+
+    await ocrPage.confirmBtn.click()
+    await ocrPage.historyToggle.click()
+    await expect(page.locator('#historyPanel')).toBeVisible()
+    await expect(page.locator('#historyPanel')).toHaveAttribute('role', 'dialog')
+    expect(await page.locator('#historyPanel').evaluate((element) => getComputedStyle(element).position)).toBe('fixed')
   })
 })
 

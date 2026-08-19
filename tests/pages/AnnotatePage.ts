@@ -15,6 +15,12 @@ export class AnnotatePage {
   readonly btnCancel: Locator
   readonly btnOcr: Locator
   readonly btnTranslate: Locator
+  readonly styleMenu: Locator
+  readonly styleMenuTrigger: Locator
+  readonly colorButtons: Locator
+  readonly blueColorButton: Locator
+  readonly lineWidthRange: Locator
+  readonly lineWidthValue: Locator
   readonly editorContainer: Locator
   readonly canvas: Locator
   readonly status: Locator
@@ -38,6 +44,12 @@ export class AnnotatePage {
     this.btnCancel = page.locator('#btn-cancel')
     this.btnOcr = page.locator('#btn-ocr')
     this.btnTranslate = page.locator('#btn-translate')
+    this.styleMenu = page.locator('#style-menu')
+    this.styleMenuTrigger = page.locator('#style-menu-trigger')
+    this.colorButtons = page.locator('.color-btn')
+    this.blueColorButton = page.locator('.color-btn[data-color="#1890ff"]')
+    this.lineWidthRange = page.locator('#lineWidthRange')
+    this.lineWidthValue = page.locator('#lineWidthValue')
     this.editorContainer = page.locator('#editor-container')
     this.canvas = page.locator('.tui-image-editor-canvas-container canvas').first()
     this.status = page.locator('#status')

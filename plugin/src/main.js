@@ -52,14 +52,19 @@ function openEditorWindow(imageUrl, options = {}) {
   hideMainWindow();
   const image = new Image();
   image.onload = () => create(
-    Math.max(image.naturalWidth + 24, 720),
-    Math.max(image.naturalHeight + 80, 560)
+    Math.max(Math.min(image.naturalWidth + 24, EDITOR_MAX_WIDTH), EDITOR_MIN_WIDTH),
+    Math.max(Math.min(image.naturalHeight + 80, EDITOR_MAX_HEIGHT), EDITOR_MIN_HEIGHT)
   );
-  image.onerror = () => create();
+  image.onerror = () => create(EDITOR_MIN_WIDTH, EDITOR_MIN_HEIGHT);
   image.src = imageUrl;
 }
 
 let controller;
+
+const EDITOR_MIN_WIDTH = 860;
+const EDITOR_MIN_HEIGHT = 640;
+const EDITOR_MAX_WIDTH = 1280;
+const EDITOR_MAX_HEIGHT = 760;
 
 function startScreenshotFlow() {
   hideMainWindow();
@@ -117,7 +122,6 @@ async function bootstrap() {
     const editorAction = params.get('editorAction');
     const editorImage = params.get('image');
     if (editorAction && editorImage) {
-      showMainWindow();
       await controller.handleEditedImage(editorImage, editorAction);
       return;
     }
