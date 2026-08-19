@@ -1,0 +1,30 @@
+{
+  "name": "dagu-ocr-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "大古 OCR 的开发、测试与发布工作区",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "npx vite --config plugin/vite.config.js",
+    "build": "npx vite build --config plugin/vite.config.js && node plugin/scripts/copy-plugin-files.mjs",
+    "preview": "npx vite preview --config plugin/vite.config.js",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report artifacts/playwright-report",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:e2e:firefox": "playwright test --project=firefox",
+    "test:e2e:webkit": "playwright test --project=webkit",
+    "install:deps": "playwright install --with-deps",
+    "publish:plugin": "npm run build && cd plugin/dist && ztools publish"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^20.19.39",
+    "@vitest/ui": "^1.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^1.0.0",
+    "vite": "^8.0.10"
+  }
+}

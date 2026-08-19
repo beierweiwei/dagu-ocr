@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OCR 文字识别</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 16px;
+      background: #fff;
+      min-width: 650px;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .main-content {
+      display: flex;
+      flex-direction: row;
+      gap: 16px;
+      min-height: 300px;
+    }
+    .drop-area {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 40px 20px;
+      text-align: center;
+      transition: all 0.3s;
+      cursor: pointer;
+      display: block;
+    }
+    .drop-area.show {
+      display: block;
+    }
+    .history {
+      border-top: 1px solid #eee;
+      padding-top: 12px;
+    }
+    .history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .history-header button {
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    .history-panel {
+      display: none;
+      margin-top: 8px;
+    }
+    .history-panel.show {
+      display: block;
+    }
+    .history-list {
+      display: grid;
+      gap: 6px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .history-item {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #fff;
+      color: #333;
+      text-align: left;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .history-empty {
+      color: #999;
+      font-size: 13px;
+    }
+    .drop-area.dragover {
+      border-color: #409eff;
+      background-color: #f0f9ff;
+    }
+    .drop-area p {
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .drop-area .hint {
+      font-size: 12px;
+      color: #999;
+    }
+    #fileInput {
+      display: none;
+    }
+    .preview {
+      display: none;
+      flex: 0 0 45%;
+      max-width: 45%;
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 100px;
+      max-height: 400px;
+      background: #f5f5f5;
+    }
+    .preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .preview.show {
+      display: block;
+    }
+    .result-area {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+    }
+    .result-area.show {
+      display: flex;
+    }
+    .result-area label {
+      font-size: 14px;
+      color: #333;
+      margin-bottom: 8px;
+      display: block;
+      flex-shrink: 0;
+    }
+    .result-area textarea {
+      width: 100%;
+      flex: 1;
+      min-height: 280px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      resize: vertical;
+      font-size: 14px;
+      line-height: 1.6;
+      font-family: inherit;
+    }
+    .result-area textarea:focus {
+      outline: none;
+      border-color: #409eff;
+    }
+    .translation-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .translation-controls select {
+      flex: 1;
+      min-width: 0;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 13px;
+    }
+    .translation-controls select:focus {
+      outline: none;
+      border-color: #409eff;
+    }
+    .translation-controls .swap-btn {
+      flex: 0 0 36px;
+      padding: 8px 0;
+    }
+    .translate-result-area {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .translate-result-area.show {
+      display: flex;
+    }
+    .translate-result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .translate-result-header label {
+      margin: 0;
+    }
+    .translate-result-area textarea {
+      width: 100%;
+      min-height: 110px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      resize: vertical;
+      font-size: 14px;
+      line-height: 1.6;
+      font-family: inherit;
+    }
+    .translate-result-area textarea:focus {
+      outline: none;
+      border-color: #409eff;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      flex-shrink: 0;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background-color: #409eff;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #66b1ff;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background-color: #f5f5f5;
+      color: #666;
+      border: 1px solid #ddd;
+    }
+    button.secondary:hover {
+      background-color: #e8e8e8;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      display: none;
+    }
+    .loading.show {
+      display: block;
+    }
+    .status {
+      text-align: center;
+      color: #67c23a;
+      font-size: 14px;
+      min-height: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="drop-area" id="dropArea">
+      <p>点击、拖拽或粘贴图片到这里</p>
+      <p class="hint">支持 JPG、PNG、GIF 等常见图片格式</p>
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+
+    <section class="history" aria-label="识别历史">
+      <div class="history-header">
+        <strong>识别历史</strong>
+        <button id="historyToggle" class="secondary" type="button" aria-expanded="false">显示历史</button>
+      </div>
+      <div id="historyPanel" class="history-panel">
+        <div id="historyList" class="history-list"></div>
+        <div id="historyEmpty" class="history-empty">暂无历史记录</div>
+        <button id="clearHistoryBtn" class="secondary" type="button">清空历史</button>
+      </div>
+    </section>
+
+    <div class="main-content">
+      <div class="preview" id="preview">
+        <img id="previewImg" src="" alt="预览">
+      </div>
+
+      <div class="result-area" id="resultArea">
+        <label>识别结果：</label>
+        <textarea id="resultText" placeholder="识别结果将显示在这里，可直接编辑"></textarea>
+        <div class="actions">
+          <button id="confirmBtn">✅ 确认并复制</button>
+          <button id="copyBtn">📋 仅复制</button>
+          <button id="translateBtn" type="button">🌐 翻译</button>
+          <button id="clearBtn">🔄 重新识别</button>
+          <button id="edit-image-btn" style="display:none;">✏️ 编辑图片</button>
+        </div>
+        <div class="translation-controls" aria-label="翻译语言">
+          <select id="sourceLang" aria-label="源语言">
+            <option value="auto">自动检测</option>
+            <option value="zh">中文</option>
+            <option value="en">英文</option>
+            <option value="ja">日文</option>
+          </select>
+          <button id="swapLangBtn" class="secondary swap-btn" type="button" title="交换语言">⇄</button>
+          <select id="targetLang" aria-label="目标语言">
+            <option value="zh">中文</option>
+            <option value="en">英文</option>
+            <option value="ja">日文</option>
+          </select>
+        </div>
+        <div class="translate-result-area" id="translateResultArea">
+          <div class="translate-result-header">
+            <label for="translateResult">翻译结果：</label>
+            <button id="copyTranslateBtn" class="secondary" type="button">📋 复制翻译</button>
+          </div>
+          <textarea id="translateResult" placeholder="翻译结果将显示在这里，可直接编辑"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="loading" id="loading">正在识别中...</div>
+
+<!-- 配置按钮 -->
+    <div style="position: absolute; top: 10px; right: 10px;">
+      <button id="configBtn" style="padding: 4px 8px; font-size: 12px;">⚙️ 配置</button>
+    </div>
+
+    <!-- 配置面板（默认隐藏） -->
+    <div id="configPanel" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: white; padding: 20px; z-index: 999; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3>OCR 配置</h3>
+        <button id="closeConfigBtn" style="padding: 4px 8px;">✕ 关闭</button>
+      </div>
+
+      <!-- 百度OCR配置 -->
+      <div style="margin-bottom: 30px;">
+        <h4 style="margin-bottom: 10px; color: #2c3e50;">百度智能云 OCR（推荐）</h4>
+        <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">
+          免费额度：每月1000次识别 | <a href="https://ai.baidu.com/ai-doc/REFERENCE/Ck3dwjhhu" target="_blank" style="color: #3498db;">👉 点我申请百度OCR密钥</a>
+        </p>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 13px; margin-bottom: 5px;">API Key (AK):</label>
+          <input type="text" id="baiduAk" placeholder="请输入百度API Key" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        </div>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 13px; margin-bottom: 5px;">Secret Key (SK):</label>
+          <input type="password" id="baiduSk" placeholder="请输入百度Secret Key" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        </div>
+      </div>
+
+      <!-- 阿里云OCR配置 -->
+      <div style="margin-bottom: 30px;">
+        <h4 style="margin-bottom: 10px; color: #2c3e50;">阿里云 OCR（官方原生）</h4>
+        <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">
+          新用户可免费领取额度，识别精度更高 | <a href="https://help.aliyun.com/zh/ocr/getting-started/use-process" target="_blank" style="color: #3498db;">👉 点我查看官方文档</a>
+        </p>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 13px; margin-bottom: 5px;">AccessKey ID:</label>
+          <input type="text" id="aliAk" placeholder="请输入阿里云AccessKey ID" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        </div>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 13px; margin-bottom: 5px;">AccessKey Secret:</label>
+          <input type="password" id="aliSk" placeholder="请输入阿里云AccessKey Secret" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        </div>
+      </div>
+
+      <!-- 翻译配置 -->
+      <div style="margin-bottom: 30px;">
+        <h4 style="margin-bottom: 10px; color: #2c3e50;">翻译</h4>
+        <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">
+          优先使用百度翻译，其次使用阿里云机器翻译，最后使用 MyMemory 免费翻译（每日5000字）。
+        </p>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 13px; margin-bottom: 5px;">默认目标语言：</label>
+          <select id="targetLangConfig" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            <option value="zh">中文</option>
+            <option value="en">英文</option>
+            <option value="ja">日文</option>
+          </select>
+        </div>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 13px; margin-bottom: 5px;">百度翻译 APP ID（可选）：</label>
+          <input type="text" id="baiduTranslateAppId" placeholder="请输入百度翻译开放平台 APP ID" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        </div>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; font-size: 13px; margin-bottom: 5px;">百度翻译密钥（可选）：</label>
+          <input type="password" id="baiduTranslateSecretKey" placeholder="请输入百度翻译开放平台密钥" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        </div>
+        <p style="font-size: 12px; color: #7f8c8d; margin: 0;">
+          百度翻译与百度智能云 OCR 分属不同平台，需要在 <a href="https://fanyi-api.baidu.com/" target="_blank" style="color: #3498db;">百度翻译开放平台</a> 单独注册。
+        </p>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button id="saveConfigBtn" style="background: #27ae60; flex: 1;">💾 保存配置</button>
+        <button id="testConfigBtn" style="background: #3498db; flex: 1;">🧪 测试配置</button>
+      </div>
+
+      <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 12px; color: #666;">
+        💡 提示：配置会保存在本地，不会上传到任何服务器，密钥安全有保障。支持百度和阿里云两种OCR服务，同时配置时优先使用百度OCR，百度失败自动 fallback 到阿里云。申请后首次识别可能需要1-2分钟生效。
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+  <!-- 同步脚本：提前注册 onPluginEnter，避免模块脚本延迟导致错过事件 -->
+  <script>
+    (function() {
+      var win = window;
+      if (win.ztools && typeof win.ztools.onPluginEnter === 'function') {
+        win.ztools.onPluginEnter(function(param) {
+          win.__ztoolsEnterParam = param;
+        });
+      } else if (win.utools) {
+        win.utools.onPluginEnter(function(param) {
+          win.__ztoolsEnterParam = param;
+        });
+      }
+    })();
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,895 @@
+/**
+ * 截图标注 — 基于 tui-image-editor (fabric.js)
+ * 支持: 选择拖拽, 矩形, 箭头, 文字, 马赛克, 撤销/重做, 清空, 复制
+ */
+// Load tui CSS (Vite strips <link> tags for non-module CSS, so load dynamically)
+(function() {
+  ['tui-color-picker.min.css', 'tui-image-editor.min.css'].forEach(function(file) {
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = './assets/' + file;
+    document.head.appendChild(link);
+  });
+})();
+let imageEditor = null;
+let annotationInProgress = false;
+let isMosaicMode = false;
+let mosaicStart = null;
+let mosaicScreenStart = null;
+let activeMode = 'select';
+let currentColor = '#ff4d4f'; // 默认标注颜色
+let currentLineWidth = 3; // 默认线条宽度
+let currentFontSize = 28; // 默认字体大小
+let originalImageInfo = null; // 保存原始图片信息
+const win = globalThis.window;
+
+function showStatus(message) {
+  const status = document.getElementById('status');
+  if (status) status.textContent = message;
+}
+// ── Mode detection ──
+const standaloneImage = new URLSearchParams(window.location.search).get('image');
+const isStandalone = !!standaloneImage;
+const returnToInput = new URLSearchParams(window.location.search).get('returnInput') === '1';
+// ── DOM refs ──
+const $ = (id) => document.getElementById(id);
+const editorContainer = $('editor-container');
+const loadingEl = $('loading');
+const dialogOverlay = $('dialog-overlay');
+const dialogTitle = $('dialog-title');
+const dialogInput = $('dialog-input');
+const dialogInputWrapper = $('dialog-input-wrapper');
+const dialogConfirm = $('dialog-confirm');
+const dialogCancel = $('dialog-cancel');
+const btnSelect = $('btn-select');
+const btnRect = $('btn-rect');
+const btnArrow = $('btn-arrow');
+const btnText = $('btn-text');
+const btnMosaic = $('btn-mosaic');
+const btnUndo = $('btn-undo');
+const btnRedo = $('btn-redo');
+const btnClear = $('btn-clear');
+const btnCopy = $('btn-copy');
+const btnCancel = $('btn-cancel');
+const closeBtn = $('close-btn');
+// ── Dialog state ──
+let pendingDialogResolve = null;
+function showDialog(title, showInput) {
+  dialogTitle.textContent = title;
+  dialogInputWrapper.classList.toggle('hidden', !showInput);
+  dialogInput.value = '';
+  dialogOverlay.classList.add('show');
+  if (showInput) setTimeout(() => dialogInput.focus(), 100);
+}
+function hideDialog() {
+  dialogOverlay.classList.remove('show');
+}
+function waitForDialog() {
+  return new Promise((resolve) => {
+    pendingDialogResolve = resolve;
+  });
+}
+dialogConfirm.addEventListener('click', () => {
+  hideDialog();
+  if (pendingDialogResolve) {
+    pendingDialogResolve({ confirmed: true, value: dialogInput.value });
+    pendingDialogResolve = null;
+  }
+});
+dialogCancel.addEventListener('click', () => {
+  hideDialog();
+  if (pendingDialogResolve) {
+    pendingDialogResolve({ confirmed: false });
+    pendingDialogResolve = null;
+  }
+});
+// ── Drawing state ──
+let drawStart = null;
+let drawScreenStart = null;
+let drawShape = null; // temporary shape during drag
+// ── Toolbar mode switching ──
+function deactivateAllButtons() {
+  [btnSelect, btnRect, btnArrow, btnText, btnMosaic].forEach(b => b.classList.remove('active'));
+}
+function removeDrawingListeners() {
+  if (!imageEditor) return;
+  const fc = imageEditor._graphics.getCanvas();
+  fc.off('mouse:down', onDrawStart);
+  fc.off('mouse:move', onDrawMove);
+  fc.off('mouse:up', onDrawEnd);
+  fc.off('mouse:down', onMosaicDown);
+  fc.off('mouse:move', onMosaicMove);
+  fc.off('mouse:up', onMosaicUp);
+  fc.off('mouse:down', onTextPlace);
+  if (drawShape && drawShape.canvas) {
+    drawShape.canvas.remove(drawShape);
+  }
+  isMosaicMode = false;
+  mosaicStart = null;
+  mosaicScreenStart = null;
+  drawStart = null;
+  drawScreenStart = null;
+  drawShape = null;
+}
+function switchMode(mode) {
+  if (!imageEditor) return;
+  const fabricCanvas = imageEditor._graphics.getCanvas();
+  removeDrawingListeners();
+  imageEditor.stopDrawingMode();
+  deactivateAllButtons();
+  activeMode = mode;
+  switch (mode) {
+    case 'select':
+      fabricCanvas.isDrawingMode = false;
+      fabricCanvas.selection = true;
+      fabricCanvas.defaultCursor = 'default';
+      btnSelect.classList.add('active');
+      break;
+    case 'rect':
+      fabricCanvas.isDrawingMode = false;
+      fabricCanvas.selection = false;
+      fabricCanvas.defaultCursor = 'crosshair';
+      fabricCanvas.on('mouse:down', onDrawStart);
+      fabricCanvas.on('mouse:move', onDrawMove);
+      fabricCanvas.on('mouse:up', onDrawEnd);
+      btnRect.classList.add('active');
+      break;
+    case 'arrow':
+      fabricCanvas.isDrawingMode = false;
+      fabricCanvas.selection = false;
+      fabricCanvas.defaultCursor = 'crosshair';
+      fabricCanvas.on('mouse:down', onDrawStart);
+      fabricCanvas.on('mouse:move', onDrawMove);
+      fabricCanvas.on('mouse:up', onDrawEnd);
+      btnArrow.classList.add('active');
+      break;
+    case 'text':
+      fabricCanvas.isDrawingMode = false;
+      fabricCanvas.selection = false;
+      fabricCanvas.defaultCursor = 'crosshair';
+      btnText.classList.add('active');
+      fabricCanvas.on('mouse:down', onTextPlace);
+      break;
+    case 'mosaic':
+      fabricCanvas.isDrawingMode = false;
+      fabricCanvas.selection = false;
+      fabricCanvas.defaultCursor = 'crosshair';
+      btnMosaic.classList.add('active');
+      isMosaicMode = true;
+      fabricCanvas.on('mouse:down', onMosaicDown);
+      fabricCanvas.on('mouse:move', onMosaicMove);
+      fabricCanvas.on('mouse:up', onMosaicUp);
+      break;
+  }
+  showStatus({
+    select: '选择模式',
+    rect: '矩形标注模式',
+    arrow: '箭头标注模式',
+    text: '点击截图上的位置添加文字',
+    mosaic: '马赛克模式',
+  }[mode] || '');
+}
+// ── Rect / Arrow drawing with fabric.js ──
+function onDrawStart(o) {
+  const fc = imageEditor._graphics.getCanvas();
+  const pointer = fc.getPointer(o.e);
+  drawStart = { x: pointer.x, y: pointer.y };
+  drawScreenStart = { x: o.e.clientX, y: o.e.clientY };
+  if (activeMode === 'rect') {
+    drawShape = new fabric.Rect({
+      left: pointer.x, top: pointer.y, width: 0, height: 0,
+      fill: 'transparent', stroke: currentColor, strokeWidth: currentLineWidth,
+    });
+    fc.add(drawShape);
+  } else if (activeMode === 'arrow') {
+    drawShape = new fabric.Line([pointer.x, pointer.y, pointer.x, pointer.y], {
+      stroke: currentColor, strokeWidth: currentLineWidth, fill: currentColor,
+    });
+    fc.add(drawShape);
+  }
+}
+function onDrawMove(o) {
+  if (!drawStart || !drawShape) return;
+  const fc = imageEditor._graphics.getCanvas();
+  const pointer = fc.getPointer(o.e);
+  if (activeMode === 'rect') {
+    const left = Math.min(drawStart.x, pointer.x);
+    const top = Math.min(drawStart.y, pointer.y);
+    const width = Math.abs(pointer.x - drawStart.x);
+    const height = Math.abs(pointer.y - drawStart.y);
+    drawShape.set({ left, top, width, height });
+  } else if (activeMode === 'arrow') {
+    drawShape.set({ x2: pointer.x, y2: pointer.y });
+  }
+  fc.renderAll();
+}
+function onDrawEnd(o) {
+  if (!drawStart || !drawShape) return;
+  const fc = imageEditor._graphics.getCanvas();
+  const pointer = fc.getPointer(o.e);
+  const dx = pointer.x - drawStart.x;
+  const dy = pointer.y - drawStart.y;
+  const screenDx = o.e.clientX - drawScreenStart.x;
+  const screenDy = o.e.clientY - drawScreenStart.y;
+  const tooSmall = Math.abs(screenDx) < 3 && Math.abs(screenDy) < 3;
+  // Remove the temporary shape
+  if (drawShape.canvas) fc.remove(drawShape);
+  drawStart = null;
+  drawScreenStart = null;
+  drawShape = null;
+  if (tooSmall) {
+    fc.renderAll();
+    switchMode('select');
+    return;
+  }
+  const left = Math.min(pointer.x, pointer.x - dx);
+  const top = Math.min(pointer.y, pointer.y - dy);
+  const width = Math.abs(dx);
+  const height = Math.abs(dy);
+  if (activeMode === 'rect') {
+    const rect = new fabric.Rect({
+      left: left, top: top,
+      width: width || 1, height: height || 1,
+      fill: 'transparent', stroke: currentColor, strokeWidth: currentLineWidth,
+    });
+    fc.add(rect);
+  } else if (activeMode === 'arrow') {
+    const angle = Math.atan2(dy, dx);
+    const headLen = currentLineWidth * 4; // 箭头大小和线宽成正比
+    const x1 = pointer.x - dx;
+    const y1 = pointer.y - dy;
+    const x2 = pointer.x;
+    const y2 = pointer.y;
+    const line = new fabric.Line([x1, y1, x2, y2], {
+      stroke: currentColor, strokeWidth: currentLineWidth, fill: currentColor,
+    });
+    const head = new fabric.Triangle({
+      left: x2, top: y2,
+      angle: (angle * 180 / Math.PI) + 90,
+      width: headLen, height: headLen,
+      fill: currentColor,
+      originX: 'center', originY: 'center',
+    });
+    fc.add(new fabric.Group([line, head]));
+  }
+  fc.renderAll();
+  switchMode('select');
+}
+// ── Text placement (click-to-place) ──
+function onTextPlace(o) {
+  const fc = imageEditor._graphics.getCanvas();
+  const pointer = fc.getPointer(o.e);
+  const text = new fabric.IText('', {
+    left: pointer.x,
+    top: pointer.y,
+    fontSize: currentFontSize,
+    fill: currentColor,
+    fontWeight: 'bold',
+  });
+  // Remove empty text if user exits editing without typing
+  const onExitEditing = (e) => {
+    if (e.target === text && !text.text.trim()) {
+      fc.remove(text);
+    }
+    fc.off('text:editing:exited', onExitEditing);
+  };
+  fc.on('text:editing:exited', onExitEditing);
+  fc.add(text);
+  fc.setActiveObject(text);
+  text.enterEditing();
+  fc.renderAll();
+  switchMode('select');
+  showStatus('已添加文字');
+}
+// ── Mosaic implementation ──
+function onMosaicDown(o) {
+  const pointer = imageEditor._graphics.getCanvas().getPointer(o.e);
+  mosaicStart = { x: pointer.x, y: pointer.y };
+  mosaicScreenStart = { x: o.e.clientX, y: o.e.clientY };
+}
+function onMosaicMove(o) {
+  if (!mosaicStart) return;
+}
+function onMosaicUp(o) {
+  if (!mosaicStart) return;
+  const pointer = imageEditor._graphics.getCanvas().getPointer(o.e);
+  const left = Math.min(mosaicStart.x, pointer.x);
+  const top = Math.min(mosaicStart.y, pointer.y);
+  const width = Math.abs(pointer.x - mosaicStart.x);
+  const height = Math.abs(pointer.y - mosaicStart.y);
+  mosaicStart = null;
+  const screenWidth = Math.abs(o.e.clientX - mosaicScreenStart.x);
+  const screenHeight = Math.abs(o.e.clientY - mosaicScreenStart.y);
+  mosaicScreenStart = null;
+  if (screenWidth < 3 || screenHeight < 3) return;
+  applyMosaic(left, top, width, height);
+}
+function applyMosaic(left, top, width, height) {
+  const pixelSize = 10;
+  const canvas = imageEditor._graphics.getCanvas();
+  const lowerEl = canvas.getContext().canvas;
+  const regionWidth = Math.max(1, Math.round(width));
+  const regionHeight = Math.max(1, Math.round(height));
+  // Draw the region at low resolution then scale up to create pixelation
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = regionWidth;
+  tempCanvas.height = regionHeight;
+  const tempCtx = tempCanvas.getContext('2d');
+  const smallW = Math.max(1, Math.ceil(regionWidth / pixelSize));
+  const smallH = Math.max(1, Math.ceil(regionHeight / pixelSize));
+  // Step 1: draw region at tiny size
+  tempCtx.imageSmoothingEnabled = false;
+  tempCtx.drawImage(lowerEl, left, top, width, height, 0, 0, smallW, smallH);
+  // Step 2: scale back up for pixelation effect
+  const resultCanvas = document.createElement('canvas');
+  resultCanvas.width = regionWidth;
+  resultCanvas.height = regionHeight;
+  const resultCtx = resultCanvas.getContext('2d');
+  resultCtx.imageSmoothingEnabled = false;
+  resultCtx.drawImage(tempCanvas, 0, 0, smallW, smallH, 0, 0, regionWidth, regionHeight);
+  // Step 3: add the generated canvas synchronously as a fabric image.
+  const mosaicImage = new fabric.Image(resultCanvas, {
+    left,
+    top,
+    evented: false,
+  });
+  canvas.add(mosaicImage);
+  canvas.renderAll();
+  switchMode('select');
+}
+// ── Delete selected object ──
+function deleteSelected() {
+  if (!imageEditor) return;
+  const canvas = imageEditor._graphics.getCanvas();
+  const activeObj = canvas.getActiveObject();
+  // Don't delete while editing IText (would delete the whole object on Backspace)
+  if (activeObj && !activeObj.isEditing) {
+    canvas.remove(activeObj);
+    canvas.discardActiveObject();
+    canvas.renderAll();
+    showStatus('已删除选中元素');
+  }
+}
+
+function undo() {
+  if (!imageEditor) return;
+  imageEditor.undo()
+    .then(() => showStatus('已撤销'))
+    .catch(() => showStatus('没有可撤销的操作'));
+}
+
+function redo() {
+  if (!imageEditor) return;
+  imageEditor.redo()
+    .then(() => showStatus('已重做'))
+    .catch(() => showStatus('没有可重做的操作'));
+}
+
+async function clearAnnotations() {
+  showDialog('确定清空所有标注吗？', false);
+  const result = await waitForDialog();
+  if (!result.confirmed || !imageEditor) return;
+
+  try {
+    await imageEditor.clearObjects();
+    imageEditor.clearUndoStack();
+    imageEditor.clearRedoStack();
+    showStatus('已清空所有标注');
+  } catch (e) {
+    console.error('清空标注失败:', e);
+    showStatus('清空标注失败');
+  }
+}
+// ── Save/Load settings ──
+function saveSettings() {
+  localStorage.setItem('annotate_color', currentColor);
+  localStorage.setItem('annotate_line_width', currentLineWidth);
+  localStorage.setItem('annotate_font_size', currentFontSize);
+}
+function loadSettings() {
+  const lineWidthRange = document.getElementById('lineWidthRange');
+  const lineWidthValue = document.getElementById('lineWidthValue');
+  const fontSizeSelect = document.getElementById('fontSizeSelect');
+  const savedColor = localStorage.getItem('annotate_color');
+  const savedLineWidth = localStorage.getItem('annotate_line_width');
+  const savedFontSize = localStorage.getItem('annotate_font_size');
+  if (savedColor) {
+    currentColor = savedColor;
+    document.querySelectorAll('.color-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.color === savedColor);
+    });
+  }
+  if (savedLineWidth) {
+    currentLineWidth = parseInt(savedLineWidth);
+    lineWidthRange.value = currentLineWidth;
+    lineWidthValue.textContent = currentLineWidth;
+  }
+  if (savedFontSize) {
+    currentFontSize = parseInt(savedFontSize);
+    fontSizeSelect.value = currentFontSize;
+  }
+}
+// ── DataURL to Blob conversion ──
+function dataURLToBlob(dataURL) {
+  var parts = dataURL.split(',');
+  var mime = parts[0].match(/:(.*?);/)[1];
+  var binary = atob(parts[1]);
+  var array = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
+  return new Blob([array], { type: mime });
+}
+// ── Copy to clipboard ──
+async function copyToClipboard() {
+  if (!imageEditor) {
+    return;
+  }
+  try {
+    var fc = imageEditor._graphics.getCanvas();
+    fc.renderAll();
+    // Render to dataURL synchronously (includes background + all annotation objects)
+    var dataURL = fc.toDataURL({ format: 'png', multiplier: 1 });
+    // ── Method 1: ztools.copyImage ──
+    if (win?.ztools?.copyImage) {
+      try {
+        var result = win.ztools.copyImage(dataURL);
+        if (result !== false) {
+          done();
+          return;
+        }
+      } catch (e) { console.warn('[annotate] ztools.copyImage failed:', e); }
+    }
+    // ── Method 2: utools.copyImage ──
+    if (win?.utools?.copyImage) {
+      try {
+        var result2 = win.utools.copyImage(dataURL);
+        if (result2 !== false) {
+          done();
+          return;
+        }
+      } catch (e) { console.warn('[annotate] utools.copyImage failed:', e); }
+    }
+    // ── Method 3: navigator.clipboard.write ──
+    var blob = dataURLToBlob(dataURL);
+    if (navigator.clipboard?.write) {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob })
+        ]);
+        done();
+        return;
+      } catch (e) { console.warn('[annotate] navigator.clipboard.write failed:', e); }
+    }
+    // ── Method 4: Download fallback ──
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'annotated-image.png';
+    a.click();
+    URL.revokeObjectURL(url);
+    setTimeout(function() {
+      if (isStandalone) { window.close(); }
+      else { exitPlugin(); }
+    }, 300);
+  } catch (e) {
+    console.error('[annotate] 导出失败:', e);
+  }
+  function done() {
+    showStatus('已复制到剪贴板');
+    // returnToInput: 通知主窗口重新识别编辑后的图片
+    if (returnToInput) {
+      try {
+        if (window.opener) {
+          window.opener.postMessage({
+            type: 'imageEdited',
+            imageUrl: dataURL
+          }, '*');
+        }
+      } catch (e) {
+        console.warn('[annotate] 通知主窗口失败:', e);
+      }
+    }
+    setTimeout(function() {
+      if (isStandalone) { window.close(); }
+      else { exitPlugin(); }
+    }, 300);
+  }
+}
+// ── Exit / Cleanup ──
+function cleanup() {
+  try {
+    if (imageEditor) {
+      removeDrawingListeners();
+      imageEditor.destroy();
+      imageEditor = null;
+    }
+  } catch (e) {
+    // ignore cleanup errors
+  }
+}
+function exitPlugin() {
+  cleanup();
+  if (win?.ztools?.outPlugin) {
+    win.ztools.outPlugin(false);
+  } else if (win?.utools) {
+    win.utools.hideMainWindow();
+  }
+}
+// ── Annotation initialization ──
+function startAnnotation(imageUrl) {
+  annotationInProgress = true;
+  if (loadingEl) loadingEl.classList.add('show');
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    // 保存原始图片信息
+    originalImageInfo = {
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      url: imageUrl
+    };
+
+    const toolbarHeight = 56;
+    const padding = 24; // 上下左右各 12px
+    const minToolbarWidth = 700;
+
+    // canvas 显示尺寸 = 窗口可用空间（图片在窗口内完整显示）
+    // 窗口大小 = 图片大小 + padding + toolbar，由 createBrowserWindow 设置
+    // 所以 canvas 显示尺寸 = 窗口大小 - padding - toolbar
+    const availW = window.innerWidth;
+    const availH = window.innerHeight - toolbarHeight;
+    const scale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight, 1);
+    let displayW = Math.floor(img.naturalWidth * scale);
+    let displayH = Math.floor(img.naturalHeight * scale);
+
+    // 保证最小尺寸
+    const MIN_SIZE = 200;
+    if (displayW < MIN_SIZE || displayH < MIN_SIZE) {
+      const scaleUp = Math.max(MIN_SIZE / displayW, MIN_SIZE / displayH);
+      displayW = Math.floor(displayW * scaleUp);
+      displayH = Math.floor(displayH * scaleUp);
+    }
+
+    // 窗口大小由 createBrowserWindow 在创建时决定
+    // ztools 子窗口没有 setWindowSize API，只能依赖创建时的尺寸
+
+    // 等待窗口调整完成后再加载编辑器
+    setTimeout(() => {
+      if (loadingEl) loadingEl.classList.remove('show');
+
+      try {
+        const editor = new tui.ImageEditor(editorContainer, {
+          includeUI: false,
+          useDefaultUI: false,
+        });
+        imageEditor = editor;
+        win.imageEditor = editor;
+        editor.loadImageFromURL(imageUrl, 'annotated-image')
+          .then(() => {
+            const fabricCanvas = editor._graphics.getCanvas();
+            // canvas 逻辑尺寸保持图片原始大小，保证编辑精度
+            const imgW = fabricCanvas.getWidth();
+            const imgH = fabricCanvas.getHeight();
+
+            // 用窗口可用空间（CSS 像素）计算 CSS 显示尺寸
+            const availW = window.innerWidth;
+            const availH = window.innerHeight - toolbarHeight;
+            const cssScale = Math.min(availW / imgW, availH / imgH, 1);
+            let cssW = Math.floor(imgW * cssScale);
+            let cssH = Math.floor(imgH * cssScale);
+            if (cssW < MIN_SIZE || cssH < MIN_SIZE) {
+              const scaleUp = Math.max(MIN_SIZE / cssW, MIN_SIZE / cssH);
+              cssW = Math.floor(cssW * scaleUp);
+              cssH = Math.floor(cssH * scaleUp);
+            }
+
+            // 通过 CSS 缩放显示，不改变 canvas 逻辑尺寸
+            const canvasElement = fabricCanvas.getElement();
+            if (canvasElement) {
+              canvasElement.style.width = cssW + 'px';
+              canvasElement.style.height = cssH + 'px';
+            }
+            // 移除tui的最大尺寸限制
+            const canvases = editorContainer.querySelectorAll('.tui-image-editor-canvas-container, .tui-image-editor-canvas-container canvas, .canvas-container, .canvas-container canvas');
+            canvases.forEach(function(el) {
+              el.style.maxWidth = '';
+              el.style.maxHeight = '';
+            });
+            // 设置容器尺寸
+            const canvasContainer = editorContainer.querySelector('.tui-image-editor-canvas-container') || editorContainer.querySelector('.canvas-container');
+            if (canvasContainer) {
+              canvasContainer.style.width = cssW + 'px';
+              canvasContainer.style.height = cssH + 'px';
+            }
+            fabricCanvas.renderAll();
+            console.log('[annotate] DPI:', window.devicePixelRatio,
+              'cssDisplay:', cssW, 'x', cssH,
+              'canvasLogical:', imgW, 'x', imgH,
+              'window:', availW, 'x', availH);
+            switchMode('select');
+            annotationInProgress = false;
+            showStatus('图片加载完成');
+          })
+          .catch((err) => {
+            console.error('图片加载失败:', err);
+            if (isStandalone) window.close();
+            else exitPlugin();
+          });
+      } catch (e) {
+        console.error('编辑器初始化失败:', e);
+        if (isStandalone) window.close();
+        else exitPlugin();
+      }
+    }, 100);
+  };
+  img.onerror = () => {
+    if (isStandalone) window.close();
+    else exitPlugin();
+  };
+  img.src = imageUrl;
+}
+// ── Child window (via createBrowserWindow) ──
+function openAnnotationWindow(imageUrl) {
+  if (!win?.ztools?.createBrowserWindow) {
+    console.warn('createBrowserWindow not available, using fallback');
+    fallbackMainWindow(imageUrl);
+    return;
+  }
+
+  // 先加载图片获取尺寸，再用正确尺寸创建窗口
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const toolbarHeight = 56;
+    const padding = 24;
+    const minToolbarWidth = 700;
+
+    let width = img.naturalWidth + padding;
+    let height = img.naturalHeight + toolbarHeight + padding;
+
+    const minWindowWidth = minToolbarWidth + padding;
+    if (width < minWindowWidth) width = minWindowWidth;
+
+    try {
+      const baseUrl = window.location.origin + window.location.pathname;
+      var childUrl = baseUrl + '?image=' + encodeURIComponent(imageUrl) +
+        (returnToInput ? '&returnInput=1' : '');
+      const childWin = win.ztools.createBrowserWindow(childUrl, {
+        width: width,
+        height: height,
+        frame: false,
+        title: '截图编辑',
+        resizable: true,
+        center: true,
+        webPreferences: {
+          preload: 'preload.js'
+        }
+      });
+      childWin.show();
+      setTimeout(() => exitPlugin(), 300);
+    } catch (e) {
+      console.error('createBrowserWindow failed:', e);
+      fallbackMainWindow(imageUrl);
+    }
+  };
+  img.onerror = () => {
+    // 图片加载失败，用默认尺寸
+    try {
+      const baseUrl = window.location.origin + window.location.pathname;
+      var childUrl = baseUrl + '?image=' + encodeURIComponent(imageUrl) +
+        (returnToInput ? '&returnInput=1' : '');
+      const childWin = win.ztools.createBrowserWindow(childUrl, {
+        width: 800,
+        height: 600,
+        frame: false,
+        title: '截图编辑',
+        resizable: true,
+        center: true,
+        webPreferences: {
+          preload: 'preload.js'
+        }
+      });
+      childWin.show();
+      setTimeout(() => exitPlugin(), 300);
+    } catch (e) {
+      console.error('createBrowserWindow failed:', e);
+      fallbackMainWindow(imageUrl);
+    }
+  };
+  img.src = imageUrl;
+}
+function fallbackMainWindow(imageUrl) {
+  if (win?.ztools?.showMainWindow) {
+    win.ztools.showMainWindow();
+  } else if (win?.utools) {
+    win.utools.showMainWindow();
+  }
+  if (win?.ztools?.removeSubInput) {
+    const timer = setInterval(() => {
+      try { win.ztools.removeSubInput(); } catch (e) {}
+      if (!annotationInProgress && !imageEditor) clearInterval(timer);
+    }, 150);
+  }
+  startAnnotation(imageUrl);
+}
+// ── Screen capture ──
+function triggerScreenCapture() {
+  const hasCaptureApi = !!(
+    (win?.ztools && typeof win.ztools.screenCapture === 'function') ||
+    (win?.utools && typeof win.utools.screenCapture === 'function')
+  );
+  if (!hasCaptureApi) {
+    showStatus('当前环境不支持截图功能');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.position = 'fixed';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    input.style.opacity = '0';
+    input.onchange = (e) => {
+      if (e.target.files.length > 0) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          input.remove();
+          openAnnotationWindow(event.target.result);
+        };
+        reader.readAsDataURL(e.target.files[0]);
+      }
+    };
+    document.body.appendChild(input);
+    input.click();
+    return;
+  }
+  if (win?.ztools?.hideMainWindow) {
+    win.ztools.hideMainWindow();
+  } else if (win?.utools) {
+    win.utools.hideMainWindow();
+  }
+  setTimeout(() => {
+    const capture = (cb) => {
+      if (win?.ztools?.screenCapture) win.ztools.screenCapture(cb);
+      else if (win?.utools?.screenCapture) win.utools.screenCapture(cb);
+    };
+    capture((imageUrl) => {
+      if (!imageUrl) {
+        setTimeout(() => exitPlugin(), 1000);
+        return;
+      }
+      openAnnotationWindow(imageUrl);
+    });
+  }, 300);
+}
+// ── Toolbar event binding ──
+function bindToolbar() {
+  const lineWidthRange = document.getElementById('lineWidthRange');
+  const lineWidthValue = document.getElementById('lineWidthValue');
+  const fontSizeSelect = document.getElementById('fontSizeSelect');
+  btnSelect.addEventListener('click', () => switchMode('select'));
+  btnRect.addEventListener('click', () => switchMode('rect'));
+  btnArrow.addEventListener('click', () => switchMode('arrow'));
+  btnText.addEventListener('click', () => switchMode('text'));
+  btnMosaic.addEventListener('click', () => switchMode('mosaic'));
+  btnUndo.addEventListener('click', undo);
+  btnRedo.addEventListener('click', redo);
+  btnClear.addEventListener('click', clearAnnotations);
+  // 颜色选择按钮事件
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentColor = btn.dataset.color;
+      saveSettings();
+    });
+  });
+  // 线条宽度拖动条事件
+  lineWidthRange.addEventListener('input', () => {
+    currentLineWidth = parseInt(lineWidthRange.value);
+    lineWidthValue.textContent = currentLineWidth;
+    saveSettings();
+  });
+  // 字体大小下拉框事件
+  fontSizeSelect.addEventListener('change', () => {
+    currentFontSize = parseInt(fontSizeSelect.value);
+    saveSettings();
+  });
+  btnCopy.addEventListener('click', copyToClipboard);
+
+  const closeAction = () => {
+    cleanup();
+    if (isStandalone) window.close();
+    else exitPlugin();
+  };
+  closeBtn.addEventListener('click', closeAction);
+  btnCancel.addEventListener('click', closeAction);
+}
+// ── Keyboard shortcuts ──
+function bindShortcuts() {
+  // Window capture phase: fires before document-level tui handlers
+  window.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !dialogOverlay.classList.contains('show')) {
+      const fc = imageEditor?._graphics?.getCanvas();
+      const activeObj = fc?.getActiveObject();
+      if (activeObj?.isEditing) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      deleteSelected();
+    }
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key === 'Enter') {
+      e.preventDefault();
+      copyToClipboard();
+    } else if (ctrl && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      undo();
+    } else if (ctrl && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      redo();
+    } else if (e.key === 'Escape') {
+      if (dialogOverlay.classList.contains('show')) {
+        hideDialog();
+        if (pendingDialogResolve) {
+          pendingDialogResolve({ confirmed: false });
+          pendingDialogResolve = null;
+        }
+        switchMode('select');
+      } else if (isMosaicMode) {
+        switchMode('select');
+      } else {
+        switchMode('select');
+      }
+    }
+  });
+}
+// ── Flow dispatch ──
+function handlePluginEnter(param) {
+  if (!param) return;
+  if (param.code === 'screenshot-annotate') {
+    if (param.type === 'img' && param.payload) {
+      openAnnotationWindow(param.payload);
+    } else {
+      triggerScreenCapture();
+    }
+  }
+}
+// ── Initialization ──
+bindToolbar();
+bindShortcuts();
+loadSettings(); // 加载保存的设置
+if (isStandalone) {
+  document.addEventListener('DOMContentLoaded', () => {
+    startAnnotation(standaloneImage);
+  });
+} else {
+  if (win.__ztoolsEnterParam) {
+    const p = win.__ztoolsEnterParam;
+    win.__ztoolsEnterParam = null;
+    handlePluginEnter(p);
+  }
+  if (win?.ztools?.removeSubInput) {
+    try { win.ztools.removeSubInput(); } catch (e) {}
+  }
+  if (win?.ztools?.onPluginEnter) {
+    win.ztools.onPluginEnter(handlePluginEnter);
+  } else if (win?.utools) {
+    win.utools.onPluginEnter(handlePluginEnter);
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const payload = params.get('payload');
+    if (code === 'screenshot-annotate') {
+      if (payload?.startsWith('data:image/')) {
+        openAnnotationWindow(payload);
+      } else {
+        triggerScreenCapture();
+      }
+    }
+    if (win.__ztoolsEnterParam) {
+      const p = win.__ztoolsEnterParam;
+      win.__ztoolsEnterParam = null;
+      handlePluginEnter(p);
+    }
+  });
+}
