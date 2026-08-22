@@ -4,7 +4,8 @@ import {
   TRANSLATION_SERVICE_PROFILES,
   getTranslationLanguageOptions,
   getTranslationServiceId,
-  mapTranslationLanguage
+  mapTranslationLanguage,
+  normalizeTranslationLanguage
 } from '../plugin/src/core/translation-languages.js';
 
 describe('Translation language profiles', () => {
@@ -13,7 +14,7 @@ describe('Translation language profiles', () => {
 
     expect(new Set(codes).size).toBe(codes.length);
     expect(codes).toEqual(expect.arrayContaining([
-      'auto', 'zh', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'pt', 'it',
+      'auto', 'zh-CN', 'zh-TW', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'pt-PT', 'it',
       'ru', 'ar', 'th', 'vi', 'id', 'ms', 'tr', 'nl', 'pl', 'uk', 'hi'
     ]));
   });
@@ -24,19 +25,30 @@ describe('Translation language profiles', () => {
     ]));
     expect(getTranslationServiceId({ id: 'deepL-translation', label: 'DeepL' })).toBe('deepl');
     expect(getTranslationServiceId({ id: 'aliyun-translation', label: '阿里云翻译' })).toBe('alibaba');
+    expect(getTranslationServiceId({
+      id: 'plugin:f-provider:custom-key',
+      key: 'microsoft',
+      type: 'translation'
+    })).toBe('microsoft');
   });
 
   it('maps the shared language ids to service-specific codes', () => {
-    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.microsoft, 'target', 'zh'))
+    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.microsoft, 'target', 'zh-CN'))
       .toBe('zh-Hans');
     expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.baidu, 'target', 'ja'))
       .toBe('jp');
-    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.google, 'target', 'zh'))
+    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.google, 'target', 'zh-CN'))
       .toBe('zh-CN');
-    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.deepl, 'target', 'zh'))
+    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.deepl, 'target', 'zh-CN'))
       .toBe('ZH');
-    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.youdao, 'target', 'zh'))
+    expect(mapTranslationLanguage(TRANSLATION_SERVICE_PROFILES.youdao, 'target', 'zh-CN'))
       .toBe('zh-CHS');
+  });
+
+  it('normalizes legacy Chinese codes to the provider-neutral contract', () => {
+    expect(normalizeTranslationLanguage('zh')).toBe('zh-CN');
+    expect(normalizeTranslationLanguage('zh-Hans')).toBe('zh-CN');
+    expect(normalizeTranslationLanguage('zh-CHT')).toBe('zh-TW');
   });
 
   it('does not expose auto detection as a target language', () => {

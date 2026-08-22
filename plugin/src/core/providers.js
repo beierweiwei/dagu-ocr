@@ -2,7 +2,8 @@ import {
   getTranslationLanguageOptions as getLanguageOptionsForProfile,
   getTranslationServiceId,
   getTranslationServiceProfile,
-  mapTranslationLanguage
+  mapTranslationLanguage,
+  normalizeTranslationLanguage
 } from './translation-languages.js';
 
 export const PROVIDER_TYPES = {
@@ -46,7 +47,7 @@ function getWindow() {
 
 function normalizeProvider(provider, type) {
   if (!provider || typeof provider !== 'object') return null;
-  const providerId = provider.id || provider.providerId || provider.code || provider.name;
+  const providerId = provider.id || provider.providerId || provider.key || provider.code || provider.name;
   if (!providerId) return null;
   const serviceId = type === PROVIDER_TYPES.translation
     ? getTranslationServiceId(provider)
@@ -63,14 +64,29 @@ function normalizeProvider(provider, type) {
   };
 }
 
-function normalizeTranslationInput(input, provider) {
-  const profile = provider?.languageProfile || getTranslationServiceProfile(provider);
-  if (!profile) return input;
-  return {
+function normalizeTranslationInput(input, provider, mapServiceCodes = false) {
+  const normalized = {
     ...input,
-    from: mapTranslationLanguage(profile, 'source', input.from),
-    to: mapTranslationLanguage(profile, 'target', input.to)
+    from: normalizeTranslationLanguage(input.from),
+    to: normalizeTranslationLanguage(input.to)
   };
+  if (!mapServiceCodes) return normalized;
+
+  const profile = provider?.languageProfile || getTranslationServiceProfile(provider);
+  if (!profile) return normalized;
+  return {
+    ...normalized,
+    from: mapTranslationLanguage(profile, 'source', normalized.from),
+    to: mapTranslationLanguage(profile, 'target', normalized.to)
+  };
+}
+
+function normalizeBuiltinTranslationInput(input, serviceId) {
+  return normalizeTranslationInput(
+    input,
+    { languageProfile: getTranslationServiceProfile(serviceId) },
+    true
+  );
 }
 
 function unwrapResult(result) {
@@ -283,6 +299,7 @@ export class BuiltinProviderService {
     if (!this.config.baiduTranslateAppId || !this.config.baiduTranslateSecretKey) {
       throw new Error('请先配置百度翻译密钥');
     }
+    ({ text, from, to } = normalizeBuiltinTranslationInput({ text, from, to }, 'baidu'));
     const salt = Date.now().toString();
     const sign = md5(`${this.config.baiduTranslateAppId}${text}${salt}${this.config.baiduTranslateSecretKey}`);
     const url = `https://fanyi-api.baidu.com/api/trans/vip/translate?q=${encodeURIComponent(text)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&appid=${encodeURIComponent(this.config.baiduTranslateAppId)}&salt=${salt}&sign=${sign}`;
@@ -296,6 +313,7 @@ export class BuiltinProviderService {
     if (!this.config.aliAk || !this.config.aliSk) {
       throw new Error('请先配置阿里云翻译 AccessKey');
     }
+    ({ text, from, to } = normalizeBuiltinTranslationInput({ text, from, to }, 'alibaba'));
     const params = {
       AccessKeyId: this.config.aliAk,
       Action: 'TranslateGeneral',
@@ -321,6 +339,7 @@ export class BuiltinProviderService {
 
   async translateByMyMemory(text, from, to) {
     if (!this.config.myMemoryKey) throw new Error('请先配置 MyMemory key');
+    ({ text, from, to } = normalizeBuiltinTranslationInput({ text, from, to }, 'mymemory'));
     const langPair = `${from === 'auto' ? 'zh' : from}|${to}`;
     const chunks = [];
     let current = '';
@@ -465,7 +484,7 @@ export class ProviderService {
     const selected = this.findProvider(type, providerId);
     if (providerId.startsWith('builtin:')) {
       const providerInput = type === PROVIDER_TYPES.translation
-        ? normalizeTranslationInput(input, selected)
+        ? normalizeTranslationInput(input, selected, true)
         : input;
       return this.builtin.invoke(providerId, providerInput);
     }

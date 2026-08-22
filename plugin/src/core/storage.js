@@ -1,3 +1,5 @@
+import { normalizeTranslationLanguage } from './translation-languages.js';
+
 export const STORAGE_KEYS = {
   preferences: 'PLUGIN/dagu-ocr/preferences',
   syncedSecrets: 'PLUGIN/dagu-ocr/secrets',
@@ -11,7 +13,7 @@ export const DEFAULT_CONFIG = {
   ocrProviderId: '',
   translationProviderId: '',
   sourceLang: 'auto',
-  targetLang: 'zh',
+  targetLang: 'zh-CN',
   syncSecrets: false,
   baiduAk: '',
   baiduSk: '',
@@ -72,11 +74,14 @@ function pick(source, fields) {
 }
 
 function normalizeConfig(value) {
-  return {
+  const config = {
     ...DEFAULT_CONFIG,
     ...pick(value || {}, PREFERENCE_FIELDS),
     ...pick(value || {}, SECRET_FIELDS)
   };
+  config.sourceLang = normalizeTranslationLanguage(config.sourceLang);
+  config.targetLang = normalizeTranslationLanguage(config.targetLang);
+  return config;
 }
 
 function legacyProviderChoices(legacy) {
@@ -198,7 +203,7 @@ export class SettingsStore {
       preferences = {
         ...choices,
         sourceLang: legacy.sourceLang || 'auto',
-        targetLang: legacy.targetLang || 'zh',
+        targetLang: legacy.targetLang || 'zh-CN',
         syncSecrets: false
       };
       localSecrets = { ...localSecrets, ...pick(legacy, SECRET_FIELDS) };

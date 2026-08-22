@@ -57,8 +57,11 @@ test.describe('完整流程集成测试', () => {
     expect(objectCount).toBeGreaterThanOrEqual(3)
 
     // 4. 复制编辑后的图片
-    await annotatePage.copy()
-    await expect(annotatePage.status).toContainText('已复制到剪贴板')
+    await Promise.all([
+      page.waitForURL(/index\.html.*editorAction=ocr/),
+      annotatePage.btnCopy.click()
+    ])
+    await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
   })
 
   test('直接访问标注页面，没有截图API时显示文件选择', async ({ page }) => {
@@ -136,11 +139,11 @@ test.describe('完整流程集成测试', () => {
   })
 })
 
-test.describe('截图子窗口回传流程', () => {
-  test('点击 OCR 后不重新显示已隐藏的原主窗口', async ({ page }) => {
+test.describe('截图窗口回退流程', () => {
+  test('子窗口创建失败时回退到同一窗口且操作可点击', async ({ page }) => {
     const captureImage = `data:image/png;base64,${TEST_IMAGE_1x1}`
-    const showMainWindowKey = '__daguOcrShowMainWindowCalls'
     const createWindowKey = '__daguOcrCreateBrowserWindowCalls'
+    const showMainWindowKey = '__daguOcrShowMainWindowCalls'
 
     await page.context().addInitScript(({ captureImage, showMainWindowKey, createWindowKey }) => {
       if (localStorage.getItem(showMainWindowKey) === null) localStorage.setItem(showMainWindowKey, '0')
@@ -149,7 +152,7 @@ test.describe('截图子窗口回传流程', () => {
         ocrProviderId: 'ztools:mock-ocr',
         translationProviderId: 'ztools:mock-translation',
         sourceLang: 'auto',
-        targetLang: 'zh',
+        targetLang: 'zh-CN',
         syncSecrets: false
       }))
 
@@ -167,12 +170,10 @@ test.describe('截图子窗口回传流程', () => {
           localStorage.setItem(showMainWindowKey, String(count))
         },
         screenCapture: (callback) => callback(captureImage),
-        createBrowserWindow: (url) => {
+        createBrowserWindow: () => {
           const count = Number(localStorage.getItem(createWindowKey) || '0') + 1
           localStorage.setItem(createWindowKey, String(count))
-          const child = window.open(url, '_blank', 'noopener,width=800,height=600')
-          if (!child) throw new Error('截图编辑子窗口未创建')
-          return { show: () => {} }
+          throw new Error('不应创建截图编辑子窗口')
         }
       }
     }, { captureImage, showMainWindowKey, createWindowKey })
@@ -180,18 +181,22 @@ test.describe('截图子窗口回传流程', () => {
     await page.goto('/index.html')
     await page.waitForLoadState('networkidle')
 
-    const childPromise = page.waitForEvent('popup')
-    await page.evaluate(() => window.app.onPluginEnter({ code: 'screenshot' }))
-    const child = await childPromise
-    await child.waitForLoadState('networkidle')
-    await expect(child.locator('#btn-ocr')).toBeVisible()
-    expect(await child.evaluate(() => window.opener === null)).toBe(true)
+    await Promise.all([
+      page.waitForURL(/annotate\.html/),
+      page.evaluate(() => window.app.onPluginEnter({ code: 'screenshot' }))
+    ])
+    await expect(page.locator('#btn-ocr')).toBeVisible()
+    expect(await page.evaluate(() => window.opener === null)).toBe(true)
     expect(await page.evaluate((key) => localStorage.getItem(key), createWindowKey)).toBe('1')
 
-    await child.locator('#btn-ocr').click()
-    await child.waitForURL(/index\.html.*editorAction=ocr/)
-    await expect(child.locator('#resultText')).toHaveValue('Mock OCR Result')
+    await Promise.all([
+      page.waitForURL(/index\.html.*editorAction=ocr/),
+      page.locator('#btn-ocr').click()
+    ])
+    await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
+    await page.locator('#confirmBtn').click()
+    await expect(page.locator('#status')).toHaveText('已复制到剪贴板')
 
-    expect(await page.evaluate((key) => localStorage.getItem(key), showMainWindowKey)).toBe('0')
+    expect(await page.evaluate((key) => localStorage.getItem(key), showMainWindowKey)).toBe('1')
   })
 })

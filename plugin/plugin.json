@@ -16,6 +16,7 @@
   "features": [
     {
       "code": "screenshot",
+      "mainHide": true,
       "explain": "截图",
       "icon": "icon.png",
       "cmds": ["截图"]

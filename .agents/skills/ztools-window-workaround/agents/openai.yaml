@@ -1,0 +1,4 @@
+interface:
+  display_name: "ZTools 窗口问题规避"
+  short_description: "参考现有插件快速规避 ZTools 窗口问题"
+  default_prompt: "使用 $ztools-window-workaround，参考现有 ZTools 插件实现窗口问题规避方案并快速验证。"

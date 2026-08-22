@@ -76,10 +76,10 @@ describe('Provider-backed recognition and translation', () => {
     const app = new OCRApp({ providerService });
     app.config.translationProviderId = 'builtin:baidu-translation';
 
-    await expect(app.translate('hello', 'en', 'zh')).resolves.toBe('你好');
+    await expect(app.translate('hello', 'en', 'zh-CN')).resolves.toBe('你好');
     expect(invoke).toHaveBeenCalledWith(
       'translation',
-      { text: 'hello', from: 'en', to: 'zh' },
+      { text: 'hello', from: 'en', to: 'zh-CN' },
       'builtin:baidu-translation'
     );
   });
@@ -97,12 +97,12 @@ describe('Provider-backed recognition and translation', () => {
       fetchImpl
     });
 
-    await expect(service.translateByMyMemory('hello', 'en', 'zh')).resolves.toBe('你好');
-    expect(fetchImpl.mock.calls[0][0]).toContain('langpair=en%7Czh');
+    await expect(service.translateByMyMemory('hello', 'en', 'zh-CN')).resolves.toBe('你好');
+    expect(fetchImpl.mock.calls[0][0]).toContain('langpair=en%7Czh-CN');
     expect(fetchImpl.mock.calls[0][0]).toContain('key=user-key');
 
     const withoutKey = new BuiltinProviderService({ config: {}, fetchImpl });
-    await expect(withoutKey.translateByMyMemory('hello', 'en', 'zh'))
+    await expect(withoutKey.translateByMyMemory('hello', 'en', 'zh-CN'))
       .rejects.toThrow('请先配置 MyMemory key');
   });
 
@@ -154,10 +154,16 @@ describe('ProviderService', () => {
     expect(api.invokeProvider).toHaveBeenCalledWith('ocr', { image }, 'mock-ocr');
   });
 
-  it('passes Microsoft-compatible Chinese language codes to external translation providers', async () => {
+  it('passes provider-neutral language codes to official translation providers', async () => {
     const api = {
       getProviders: vi.fn(async (type) => type === 'translation'
-        ? [{ id: 'microsoft-translation', label: '微软翻译' }]
+        ? [{
+          id: 'plugin:f-provider:microsoft',
+          type: 'translation',
+          key: 'microsoft',
+          label: '微软翻译',
+          source: 'plugin'
+        }]
         : []),
       invokeProvider: vi.fn().mockResolvedValue({ text: '你好' })
     };
@@ -166,21 +172,27 @@ describe('ProviderService', () => {
 
     await expect(service.invoke(
       'translation',
-      { text: 'hello', from: 'en', to: 'zh' },
-      'ztools:microsoft-translation'
+      { text: 'hello', from: 'en', to: 'zh-Hans' },
+      'ztools:plugin:f-provider:microsoft'
     )).resolves.toBe('你好');
 
     expect(api.invokeProvider).toHaveBeenCalledWith(
       'translation',
-      { text: 'hello', from: 'en', to: 'zh-Hans' },
-      'microsoft-translation'
+      { text: 'hello', from: 'en', to: 'zh-CN' },
+      'plugin:f-provider:microsoft'
     );
   });
 
-  it('keeps common language codes for non-Microsoft translation providers', async () => {
+  it('does not map neutral language codes before calling external providers', async () => {
     const api = {
       getProviders: vi.fn(async (type) => type === 'translation'
-        ? [{ id: 'mock-translation', label: '测试翻译' }]
+        ? [{
+          id: 'plugin:f-provider:baidu',
+          type: 'translation',
+          key: 'baidu',
+          label: '百度翻译',
+          source: 'plugin'
+        }]
         : []),
       invokeProvider: vi.fn().mockResolvedValue({ text: '你好' })
     };
@@ -189,14 +201,14 @@ describe('ProviderService', () => {
 
     await service.invoke(
       'translation',
-      { text: 'hello', from: 'en', to: 'zh' },
-      'ztools:mock-translation'
+      { text: 'hello', from: 'en', to: 'ja' },
+      'ztools:plugin:f-provider:baidu'
     );
 
     expect(api.invokeProvider).toHaveBeenCalledWith(
       'translation',
-      { text: 'hello', from: 'en', to: 'zh' },
-      'mock-translation'
+      { text: 'hello', from: 'en', to: 'ja' },
+      'plugin:f-provider:baidu'
     );
   });
 

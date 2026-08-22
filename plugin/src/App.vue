@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted, onBeforeUnmount, reactive } from 'vue';
+import { onMounted, onBeforeUnmount, onUpdated, reactive } from 'vue';
+import { createPluginWindowLayoutSync } from './window-layout.js';
 
 const props = defineProps({
   controller: { type: Object, required: true }
@@ -50,12 +51,25 @@ const saveConfig = () => props.controller.saveConfig({ ...state.config }, true);
 const saveConfigWithoutClosing = () => props.controller.saveConfig({ ...state.config }, false);
 const updateLanguage = () => props.controller.saveConfig({ ...state.config }, false);
 
+let windowLayout;
+
 onMounted(() => {
   document.addEventListener('paste', pasteImage);
+  windowLayout = createPluginWindowLayoutSync({
+    win: window,
+    doc: document,
+    root: document.querySelector('.app-shell')
+  });
+  windowLayout.sync();
+});
+
+onUpdated(() => {
+  windowLayout?.schedule(true);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('paste', pasteImage);
+  windowLayout?.dispose();
 });
 </script>
 
@@ -71,7 +85,6 @@ onBeforeUnmount(() => {
       </div>
       <div class="header-actions">
         <span class="mode-label">{{ state.mode === 'translate' ? '文字翻译' : state.mode === 'edit' ? '编辑图片' : '图片 OCR' }}</span>
-        <button id="historyToggle" class="icon-button" type="button" title="查看识别历史" :aria-expanded="state.historyExpanded" @click="props.controller.toggleHistory">历史</button>
         <button id="configBtn" class="icon-button" type="button" title="打开配置" @click="props.controller.showConfigPanel()">设置</button>
       </div>
     </header>
@@ -203,6 +216,16 @@ onBeforeUnmount(() => {
     <section v-if="!state.showImage && !state.showUpload && !state.showTranslationInput" class="empty-state">
       <h2>准备开始</h2>
       <p>从 ZTools 传入图片或文字，处理结果会显示在这里。</p>
+    </section>
+
+    <section class="history-section" aria-label="识别历史">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">HISTORY</span>
+          <h2>最近识别</h2>
+        </div>
+        <button id="historyToggle" class="text-button" type="button" title="查看识别历史" :aria-expanded="state.historyExpanded" @click="props.controller.toggleHistory">{{ state.historyExpanded ? '收起' : '展开' }}</button>
+      </div>
     </section>
 
     <div id="loading" class="loading" :class="{ show: state.busy }" role="status" aria-live="polite">

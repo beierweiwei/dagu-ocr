@@ -17,54 +17,86 @@ function showMainWindow() {
 
 function editorUrl(imageUrl, options = {}) {
   const url = new URL('annotate.html', window.location.href);
-  url.searchParams.set('image', imageUrl);
-  url.searchParams.set('payload', imageUrl);
+  let stored = false;
+  try {
+    const key = `dagu-ocr-editor-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.localStorage.setItem(key, imageUrl);
+    url.searchParams.set('editorKey', key);
+    stored = true;
+  } catch {
+    // Fall back to the URL when localStorage is unavailable.
+  }
+  if (!stored) url.searchParams.set('image', imageUrl);
   if (options.fromScreenshot) url.searchParams.set('screenshotFlow', '1');
   if (options.returnInput) url.searchParams.set('returnInput', '1');
   return url.href;
 }
 
-function openEditorWindow(imageUrl, options = {}) {
+let editorWindow = null;
+
+function fallbackNavigateToEditor(imageUrl, options = {}) {
   const url = editorUrl(imageUrl, options);
-  const createWindow = win?.ztools?.createBrowserWindow;
+  window.location.href = url;
+}
+
+function editorWindowSize(imageUrl) {
+  const image = new Image();
+  image.src = imageUrl;
+  const width = image.naturalWidth || 960;
+  const height = image.naturalHeight || 640;
+  return {
+    width: Math.min(Math.max(width + 24, 860), 1400),
+    height: Math.min(Math.max(height + 80, 640), 900)
+  };
+}
+
+function openEditorWindow(imageUrl, options = {}) {
+  const createWindow = win?.ztools?.createBrowserWindow || win?.utools?.createBrowserWindow;
   if (typeof createWindow !== 'function') {
-    window.location.href = url;
+    fallbackNavigateToEditor(imageUrl, options);
     return;
   }
 
-  const create = (width = 800, height = 600) => {
-    try {
-      const child = createWindow(url, {
-        width,
-        height,
-        frame: false,
-        title: options.fromScreenshot ? '截图编辑' : '图片编辑',
-        resizable: true,
-        webPreferences: { preload: 'preload.js' }
-      });
-      child?.show?.();
-    } catch (error) {
-      console.warn('创建编辑窗口失败:', error);
-      window.location.href = url;
-    }
-  };
-
   hideMainWindow();
-  const image = new Image();
-  image.onload = () => create(
-    Math.max(Math.min(image.naturalWidth + 24, EDITOR_MAX_WIDTH), EDITOR_MIN_WIDTH),
-    Math.max(Math.min(image.naturalHeight + 80, EDITOR_MAX_HEIGHT), EDITOR_MIN_HEIGHT)
-  );
-  image.onerror = () => create(EDITOR_MIN_WIDTH, EDITOR_MIN_HEIGHT);
-  image.src = imageUrl;
+  const size = editorWindowSize(imageUrl);
+  const url = editorUrl(imageUrl, options);
+  let child;
+
+  try {
+    child = createWindow(url, {
+      show: true,
+      width: size.width,
+      height: size.height,
+      minWidth: 860,
+      minHeight: 640,
+      frame: false,
+      title: options.fromScreenshot ? '截图编辑' : '图片编辑',
+      resizable: true,
+      center: true,
+      autoHideMenuBar: true,
+      backgroundColor: '#f4f7f5',
+      skipTaskbar: false,
+      alwaysOnTop: true,
+      webPreferences: { preload: 'preload.js' }
+    }, () => {
+      child?.show?.();
+      child?.focus?.();
+    });
+    editorWindow = child;
+    child?.show?.();
+    child?.focus?.();
+    child?.on?.('closed', () => {
+      if (editorWindow === child) editorWindow = null;
+    });
+  } catch (error) {
+    editorWindow = null;
+    console.warn('创建编辑窗口失败:', error);
+    showMainWindow();
+    fallbackNavigateToEditor(imageUrl, options);
+  }
 }
 
 let controller;
-
-const EDITOR_MIN_WIDTH = 860;
-const EDITOR_MIN_HEIGHT = 640;
-const EDITOR_MAX_WIDTH = 1280;
-const EDITOR_MAX_HEIGHT = 760;
 
 function startScreenshotFlow() {
   hideMainWindow();
@@ -100,6 +132,17 @@ if (win?.ztools && typeof win.ztools.onPluginEnter === 'function') {
 
 window.addEventListener('message', (event) => {
   const data = event.data || {};
+  if (data.type === 'daguOcrEditorMessage') {
+    const message = data.payload || {};
+    if (message.event === 'result' && message.imageUrl) {
+      showMainWindow();
+      void controller.handleEditedImage(message.imageUrl, message.action || 'ocr');
+    } else if (message.event === 'closed') {
+      if (message.returnInput) showMainWindow();
+      else controller.exitPlugin();
+    }
+    return;
+  }
   if (data.type === 'annotateAction' && data.imageUrl) {
     showMainWindow();
     void controller.handleEditedImage(data.imageUrl, data.action);

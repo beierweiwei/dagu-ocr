@@ -30,8 +30,7 @@ button:disabled { cursor: wait; opacity: .55; }
 .app-shell {
   width: 100%;
   max-width: 1040px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 0;
   margin: 0 auto;
   padding: 12px 18px;
   display: flex;
@@ -92,7 +91,7 @@ button:disabled { cursor: wait; opacity: .55; }
 .text-button:hover { color: var(--orange); }
 .danger-text { color: var(--danger); }
 
-.drop-area, .input-panel, .workspace-grid, .empty-state {
+.drop-area, .input-panel, .workspace-grid, .history-section, .empty-state {
   border: 1px solid var(--line);
   background: var(--surface);
   border-radius: 8px;
@@ -123,7 +122,7 @@ button:disabled { cursor: wait; opacity: .55; }
   font-size: 26px;
   line-height: 1;
 }
-.drop-area h2, .input-panel h2, .result-area h2, .empty-state h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
+.drop-area h2, .input-panel h2, .result-area h2, .history-section h2, .empty-state h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
 .drop-area p, .input-panel p, .empty-state p { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
 
 .eyebrow { color: var(--orange); font-size: 10px; font-weight: 800; letter-spacing: 1.2px; }
@@ -202,6 +201,7 @@ button:disabled { cursor: wait; opacity: .55; }
 .compact-heading h3 { margin: 0; font-size: 13px; }
 .compact-heading p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 
+.history-section { padding: 14px 16px; }
 .history-overlay {
   position: fixed;
   inset: 0;

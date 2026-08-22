@@ -91,6 +91,7 @@ describe('SettingsStore', () => {
     expect(config.ocrProviderId).toBe('builtin:baidu-ocr');
     expect(config.baiduAk).toBe('legacy-ak');
     expect(config.sourceLang).toBe('en');
+    expect(config.targetLang).toBe('zh-CN');
     expect(localStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEYS.legacyConfig);
   });
 

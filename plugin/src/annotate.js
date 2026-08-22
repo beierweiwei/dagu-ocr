@@ -28,10 +28,95 @@ function showStatus(message) {
   if (status) status.textContent = message;
 }
 // ── Mode detection ──
-const standaloneImage = new URLSearchParams(window.location.search).get('image');
+const editorParams = new URLSearchParams(window.location.search);
+const editorKey = editorParams.get('editorKey');
+let storedEditorImage = '';
+if (editorKey) {
+  try {
+    storedEditorImage = window.localStorage.getItem(editorKey) || '';
+    window.localStorage.removeItem(editorKey);
+  } catch {
+    // Ignore storage failures and use the URL fallback.
+  }
+}
+const standaloneImage = editorParams.get('image') || storedEditorImage;
 const isStandalone = !!standaloneImage;
-const returnToInput = new URLSearchParams(window.location.search).get('returnInput') === '1';
-const screenshotFlow = new URLSearchParams(window.location.search).get('screenshotFlow') === '1';
+const returnToInput = editorParams.get('returnInput') === '1';
+const screenshotFlow = editorParams.get('screenshotFlow') === '1';
+const editorChannel = 'dagu-ocr-editor';
+
+function isChildWindow() {
+  if (window.opener) return true;
+  const host = win?.ztools || win?.utools;
+  try {
+    return host?.getWindowType?.() === 'browser';
+  } catch {
+    return false;
+  }
+}
+
+function sendEditorMessage(event, payload = {}) {
+  const sendToParent = win?.ztools?.sendToParent || win?.utools?.sendToParent;
+  if (typeof sendToParent !== 'function') return false;
+  try {
+    sendToParent(editorChannel, { event, ...payload });
+    return true;
+  } catch (error) {
+    console.warn('[annotate] 回传父窗口失败:', error);
+    return false;
+  }
+}
+
+function navigateToMain(action, imageUrl) {
+  const url = new URL('index.html', window.location.href);
+  if (action) url.searchParams.set('editorAction', action);
+  if (imageUrl) url.searchParams.set('image', imageUrl);
+  window.location.href = url.href;
+}
+
+function hasPluginExitApi() {
+  return typeof win?.ztools?.outPlugin === 'function'
+    || typeof win?.utools?.hideMainWindow === 'function';
+}
+
+function leaveEditor() {
+  if (isChildWindow()) {
+    if (sendEditorMessage('closed', { returnInput })) {
+      setTimeout(() => window.close(), 150);
+      return;
+    }
+  }
+  if (window.opener) {
+    window.close();
+    return;
+  }
+  if (isStandalone && !hasPluginExitApi()) {
+    navigateToMain();
+    return;
+  }
+  exitPlugin();
+}
+
+function finishEditorCopy(dataURL) {
+  showStatus('已复制到剪贴板');
+  if (returnToInput) {
+    if (sendEditorMessage('result', { action: 'ocr', imageUrl: dataURL })) {
+      setTimeout(() => window.close(), 300);
+      return;
+    }
+    if (window.opener) {
+      window.opener.postMessage({
+        type: 'imageEdited',
+        imageUrl: dataURL
+      }, '*');
+      setTimeout(() => window.close(), 300);
+    } else {
+      navigateToMain('ocr', dataURL);
+    }
+    return;
+  }
+  setTimeout(leaveEditor, 300);
+}
 // ── DOM refs ──
 const $ = (id) => document.getElementById(id);
 const editorContainer = $('editor-container');
@@ -432,10 +517,6 @@ function setCurrentColor(color, persist = true) {
 
 const EDITOR_PADDING = 24;
 const MIN_CANVAS_SIZE = 200;
-const EDITOR_WINDOW_MIN_WIDTH = 860;
-const EDITOR_WINDOW_MIN_HEIGHT = 640;
-const EDITOR_WINDOW_MAX_WIDTH = 1280;
-const EDITOR_WINDOW_MAX_HEIGHT = 760;
 
 function editorViewport() {
   return {
@@ -517,6 +598,12 @@ function sendScreenshotAction(action) {
   var imageUrl = currentCanvasDataUrl();
   if (!imageUrl) return;
 
+  if (sendEditorMessage('result', { action, imageUrl })) {
+    showStatus(action === 'ocr' ? '已将图片交给 OCR' : '已将图片交给翻译');
+    setTimeout(function() { window.close(); }, 250);
+    return;
+  }
+
   try {
     if (window.opener) {
       window.opener.postMessage({ type: 'annotateAction', action: action, imageUrl: imageUrl }, '*');
@@ -528,10 +615,7 @@ function sendScreenshotAction(action) {
     console.warn('[annotate] 通知主窗口失败:', error);
   }
 
-  var url = new URL('index.html', window.location.href);
-  url.searchParams.set('editorAction', action);
-  url.searchParams.set('image', imageUrl);
-  window.location.href = url.href;
+  navigateToMain(action, imageUrl);
 }
 
 // ── Copy to clipboard ──
@@ -549,7 +633,7 @@ async function copyToClipboard() {
       try {
         var result = win.ztools.copyImage(dataURL);
         if (result !== false) {
-          done();
+          finishEditorCopy(dataURL);
           return;
         }
       } catch (e) { console.warn('[annotate] ztools.copyImage failed:', e); }
@@ -559,7 +643,7 @@ async function copyToClipboard() {
       try {
         var result2 = win.utools.copyImage(dataURL);
         if (result2 !== false) {
-          done();
+          finishEditorCopy(dataURL);
           return;
         }
       } catch (e) { console.warn('[annotate] utools.copyImage failed:', e); }
@@ -571,7 +655,7 @@ async function copyToClipboard() {
         await navigator.clipboard.write([
           new ClipboardItem({ 'image/png': blob })
         ]);
-        done();
+        finishEditorCopy(dataURL);
         return;
       } catch (e) { console.warn('[annotate] navigator.clipboard.write failed:', e); }
     }
@@ -582,32 +666,9 @@ async function copyToClipboard() {
     a.download = 'annotated-image.png';
     a.click();
     URL.revokeObjectURL(url);
-    setTimeout(function() {
-      if (isStandalone) { window.close(); }
-      else { exitPlugin(); }
-    }, 300);
+    finishEditorCopy(dataURL);
   } catch (e) {
     console.error('[annotate] 导出失败:', e);
-  }
-  function done() {
-    showStatus('已复制到剪贴板');
-    // returnToInput: 通知主窗口重新识别编辑后的图片
-    if (returnToInput) {
-      try {
-        if (window.opener) {
-          window.opener.postMessage({
-            type: 'imageEdited',
-            imageUrl: dataURL
-          }, '*');
-        }
-      } catch (e) {
-        console.warn('[annotate] 通知主窗口失败:', e);
-      }
-    }
-    setTimeout(function() {
-      if (isStandalone) { window.close(); }
-      else { exitPlugin(); }
-    }, 300);
   }
 }
 // ── Exit / Cleanup ──
@@ -675,106 +736,34 @@ function startAnnotation(imageUrl) {
           })
           .catch((err) => {
             console.error('图片加载失败:', err);
-            if (isStandalone) window.close();
-            else exitPlugin();
+            leaveEditor();
           });
       } catch (e) {
         console.error('编辑器初始化失败:', e);
-        if (isStandalone) window.close();
-        else exitPlugin();
+        leaveEditor();
       }
     }, 100);
   };
   img.onerror = () => {
-    if (isStandalone) window.close();
-    else exitPlugin();
+    leaveEditor();
   };
   img.src = imageUrl;
 }
-// ── Child window (via createBrowserWindow) ──
+// ── Direct editor navigation ──
 function openAnnotationWindow(imageUrl) {
-  if (!win?.ztools?.createBrowserWindow) {
-    console.warn('createBrowserWindow not available, using fallback');
-    fallbackMainWindow(imageUrl);
+  if (isChildWindow()) {
+    startAnnotation(imageUrl);
     return;
   }
+  if (typeof win?.ztools?.showMainWindow === 'function') win.ztools.showMainWindow();
+  else if (typeof win?.utools?.showMainWindow === 'function') win.utools.showMainWindow();
 
-  // 先加载图片获取尺寸，再用正确尺寸创建窗口
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    const toolbarHeight = 56;
-    const padding = 24;
-    const width = Math.max(
-      Math.min(img.naturalWidth + padding, EDITOR_WINDOW_MAX_WIDTH),
-      EDITOR_WINDOW_MIN_WIDTH
-    );
-    const height = Math.max(
-      Math.min(img.naturalHeight + toolbarHeight + padding, EDITOR_WINDOW_MAX_HEIGHT),
-      EDITOR_WINDOW_MIN_HEIGHT
-    );
-
-    try {
-      const baseUrl = window.location.origin + window.location.pathname;
-      var childUrl = baseUrl + '?image=' + encodeURIComponent(imageUrl) +
-        (returnToInput ? '&returnInput=1' : '');
-      const childWin = win.ztools.createBrowserWindow(childUrl, {
-        width: width,
-        height: height,
-        frame: false,
-        title: '截图编辑',
-        resizable: true,
-        center: true,
-        webPreferences: {
-          preload: 'preload.js'
-        }
-      });
-      childWin.show();
-      setTimeout(() => exitPlugin(), 300);
-    } catch (e) {
-      console.error('createBrowserWindow failed:', e);
-      fallbackMainWindow(imageUrl);
-    }
-  };
-  img.onerror = () => {
-    // 图片加载失败，用默认尺寸
-    try {
-      const baseUrl = window.location.origin + window.location.pathname;
-      var childUrl = baseUrl + '?image=' + encodeURIComponent(imageUrl) +
-        (returnToInput ? '&returnInput=1' : '');
-      const childWin = win.ztools.createBrowserWindow(childUrl, {
-        width: EDITOR_WINDOW_MIN_WIDTH,
-        height: EDITOR_WINDOW_MIN_HEIGHT,
-        frame: false,
-        title: '截图编辑',
-        resizable: true,
-        center: true,
-        webPreferences: {
-          preload: 'preload.js'
-        }
-      });
-      childWin.show();
-      setTimeout(() => exitPlugin(), 300);
-    } catch (e) {
-      console.error('createBrowserWindow failed:', e);
-      fallbackMainWindow(imageUrl);
-    }
-  };
-  img.src = imageUrl;
-}
-function fallbackMainWindow(imageUrl) {
-  if (win?.ztools?.showMainWindow) {
-    win.ztools.showMainWindow();
-  } else if (win?.utools) {
-    win.utools.showMainWindow();
-  }
-  if (win?.ztools?.removeSubInput) {
-    const timer = setInterval(() => {
-      try { win.ztools.removeSubInput(); } catch (e) {}
-      if (!annotationInProgress && !imageEditor) clearInterval(timer);
-    }, 150);
-  }
-  startAnnotation(imageUrl);
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('image', imageUrl);
+  url.searchParams.set('screenshotFlow', '1');
+  if (returnToInput) url.searchParams.set('returnInput', '1');
+  window.location.href = url.href;
 }
 // ── Screen capture ──
 function triggerScreenCapture() {
@@ -874,8 +863,7 @@ function bindToolbar() {
 
   const closeAction = () => {
     cleanup();
-    if (isStandalone) window.close();
-    else exitPlugin();
+    leaveEditor();
   };
   closeBtn.addEventListener('click', closeAction);
   btnCancel.addEventListener('click', closeAction);
