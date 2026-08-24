@@ -65,8 +65,9 @@ test.describe('OCR 主页面功能测试', () => {
     await expect(ocrPage.dropArea).toBeVisible()
     await expect(ocrPage.configBtn).toBeVisible()
     await expect(ocrPage.historyToggle).toBeVisible()
-    await expect(ocrPage.historyToggle.locator('..')).toHaveClass(/section-heading/)
-    await expect(ocrPage.historyToggle.locator('xpath=../..')).toHaveClass(/history-section/)
+    await expect(ocrPage.historyToggle.locator('..')).toHaveClass(/section-actions/)
+    await expect(ocrPage.page.locator('.history-section')).toBeVisible()
+    await expect(ocrPage.page.locator('.app-header')).toHaveCount(0)
     await expect(ocrPage.status).toHaveText('')
   })
 
@@ -149,14 +150,26 @@ test.describe('OCR 主页面功能测试', () => {
 
     await expect(ocrPage.translateResult).toHaveValue('Mock Translation: Mock OCR Result')
     await expect(page.locator('.text-comparison.with-translation')).toBeVisible()
+    await expect(ocrPage.previewFrame).toBeHidden()
+    await expect(ocrPage.editBtn).toBeHidden()
+    await expect(ocrPage.togglePreviewBtn).toHaveText('展开预览')
 
     const sourceBox = await page.locator('#sourceTextPane').boundingBox()
     const translationBox = await page.locator('#translateResultArea').boundingBox()
+    const resultBox = await ocrPage.resultArea.boundingBox()
+    const workspaceBox = await page.locator('.workspace-grid.has-translation').boundingBox()
     expect(sourceBox).not.toBeNull()
     expect(translationBox).not.toBeNull()
+    expect(resultBox).not.toBeNull()
+    expect(workspaceBox).not.toBeNull()
     expect(translationBox!.x).toBeGreaterThan(sourceBox!.x)
-    expect(translationBox!.height).toBeGreaterThanOrEqual(240)
+    expect(translationBox!.height).toBeGreaterThanOrEqual(340)
     expect(Math.abs(translationBox!.height - sourceBox!.height)).toBeLessThanOrEqual(2)
+    expect(resultBox!.width / workspaceBox!.width).toBeGreaterThan(.9)
+
+    await ocrPage.togglePreviewBtn.click()
+    await expect(ocrPage.previewFrame).toBeVisible()
+    await expect(ocrPage.togglePreviewBtn).toHaveText('收起预览')
   })
 
   test('翻译指令无图片时显示文字输入面板并展示结果', async ({ page }) => {

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onBeforeUnmount, onUpdated, reactive } from 'vue';
+import { computed, onMounted, onBeforeUnmount, onUpdated, reactive, ref, watch } from 'vue';
 import { createPluginWindowLayoutSync } from './window-layout.js';
 
 const props = defineProps({
@@ -41,11 +41,26 @@ const openEditor = () => {
 };
 
 const submitTranslation = () => props.controller.translateTextInput();
-const translateResult = () => props.controller.translateAndUpdate(state.resultText);
+const translateResult = () => {
+  previewExpanded.value = false;
+  return props.controller.translateAndUpdate(state.resultText);
+};
 const translationLanguages = (direction) => props.controller.getTranslationLanguageOptions(
   direction,
   state.config.translationProviderId
 );
+
+const previewExpanded = ref(false);
+const translationActive = computed(() => (
+  state.showTranslateResult || state.busyLabel === '正在翻译'
+));
+const previewCollapsed = computed(() => translationActive.value && !previewExpanded.value);
+const togglePreview = () => {
+  previewExpanded.value = !previewExpanded.value;
+};
+watch(() => state.showTranslateResult, (visible) => {
+  if (!visible) previewExpanded.value = false;
+});
 
 const saveConfig = () => props.controller.saveConfig({ ...state.config }, true);
 const saveConfigWithoutClosing = () => props.controller.saveConfig({ ...state.config }, false);
@@ -75,20 +90,6 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="app-shell">
-    <header class="app-header">
-      <div class="brand-block">
-        <div class="brand-mark" aria-hidden="true">大</div>
-        <div>
-          <h1>大古 OCR</h1>
-          <p>图片文字识别与翻译</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <span class="mode-label">{{ state.mode === 'translate' ? '文字翻译' : state.mode === 'edit' ? '编辑图片' : '图片 OCR' }}</span>
-        <button id="configBtn" class="icon-button" type="button" title="打开配置" @click="props.controller.showConfigPanel()">设置</button>
-      </div>
-    </header>
-
     <section v-if="state.showTranslationInput" id="textInputPanel" class="input-panel text-input-panel">
       <div class="panel-heading">
         <div>
@@ -142,19 +143,29 @@ onBeforeUnmount(() => {
       <p>{{ state.mode === 'edit' ? '编辑完成后可复制图片' : '支持 PNG、JPG、GIF 等常见格式，也可直接粘贴' }}</p>
     </section>
 
-    <section v-if="state.showImage" class="workspace-grid" :class="{ 'has-translation': state.showTranslateResult }">
-      <div id="preview" class="preview" :class="{ show: state.showImage }">
+    <section v-if="state.showImage" class="workspace-grid" :class="{ 'has-translation': translationActive }">
+      <div id="preview" class="preview" :class="{ show: state.showImage, 'is-collapsed': previewCollapsed }">
         <div class="preview-heading">
           <div>
             <span class="eyebrow">IMAGE</span>
             <span class="preview-label">当前图片</span>
           </div>
-          <span class="preview-badge">预览</span>
+          <div class="preview-actions">
+            <span v-if="!previewCollapsed" class="preview-badge">预览</span>
+            <button
+              v-if="translationActive"
+              id="togglePreviewBtn"
+              class="text-button preview-toggle"
+              type="button"
+              :title="previewCollapsed ? '展开图片预览' : '收起图片预览'"
+              @click="togglePreview"
+            >{{ previewCollapsed ? '展开预览' : '收起预览' }}</button>
+          </div>
         </div>
-        <div class="preview-frame">
+        <div v-show="!previewCollapsed" class="preview-frame">
           <img id="previewImg" :src="state.imageUrl" alt="待处理图片">
         </div>
-        <button id="edit-image-btn" class="secondary-button full-button" type="button" @click="openEditor">编辑图片</button>
+        <button v-show="!previewCollapsed" id="edit-image-btn" class="secondary-button full-button" type="button" @click="openEditor">编辑图片</button>
       </div>
 
       <div v-if="state.showResult" id="resultArea" class="result-area" :class="{ show: state.showResult }">
@@ -224,7 +235,10 @@ onBeforeUnmount(() => {
           <span class="eyebrow">HISTORY</span>
           <h2>最近识别</h2>
         </div>
-        <button id="historyToggle" class="text-button" type="button" title="查看识别历史" :aria-expanded="state.historyExpanded" @click="props.controller.toggleHistory">{{ state.historyExpanded ? '收起' : '展开' }}</button>
+        <div class="section-actions">
+          <button id="configBtn" class="icon-button" type="button" title="打开配置" @click="props.controller.showConfigPanel()">设置</button>
+          <button id="historyToggle" class="text-button" type="button" title="查看识别历史" :aria-expanded="state.historyExpanded" @click="props.controller.toggleHistory">{{ state.historyExpanded ? '收起' : '展开' }}</button>
+        </div>
       </div>
     </section>
 

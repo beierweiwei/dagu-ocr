@@ -6,6 +6,8 @@ export class OcrPage {
   readonly fileInput: Locator
   readonly preview: Locator
   readonly previewImg: Locator
+  readonly previewFrame: Locator
+  readonly togglePreviewBtn: Locator
   readonly loading: Locator
   readonly resultArea: Locator
   readonly resultText: Locator
@@ -36,6 +38,8 @@ export class OcrPage {
     this.fileInput = page.locator('#fileInput')
     this.preview = page.locator('.preview')
     this.previewImg = page.locator('#previewImg')
+    this.previewFrame = page.locator('.preview-frame')
+    this.togglePreviewBtn = page.locator('#togglePreviewBtn')
     this.loading = page.locator('.loading')
     this.resultArea = page.locator('.result-area')
     this.resultText = page.locator('#resultText')

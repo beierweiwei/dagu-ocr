@@ -17,6 +17,7 @@
     "test:e2e:firefox": "playwright test --project=firefox",
     "test:e2e:webkit": "playwright test --project=webkit",
     "install:deps": "playwright install --with-deps",
+    "install:ztools": "npm run build && node plugin/scripts/install-to-ztools.mjs",
     "publish:plugin": "npm run build && cd plugin/dist && ztools publish"
   },
   "devDependencies": {

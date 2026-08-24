@@ -138,6 +138,10 @@ window.addEventListener('message', (event) => {
       showMainWindow();
       void controller.handleEditedImage(message.imageUrl, message.action || 'ocr');
     } else if (message.event === 'closed') {
+      if (editorWindow && typeof editorWindow.close === 'function') {
+        try { editorWindow.close(); } catch { /* 已关闭时忽略 */ }
+      }
+      editorWindow = null;
       if (message.returnInput) showMainWindow();
       else controller.exitPlugin();
     }

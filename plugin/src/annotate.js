@@ -80,14 +80,10 @@ function hasPluginExitApi() {
 }
 
 function leaveEditor() {
-  if (isChildWindow()) {
-    if (sendEditorMessage('closed', { returnInput })) {
-      setTimeout(() => window.close(), 150);
-      return;
-    }
-  }
-  if (window.opener) {
-    window.close();
+  const notified = isChildWindow() ? sendEditorMessage('closed', { returnToInput }) : false;
+  if (notified || isChildWindow() || window.opener) {
+    // 子窗口必须始终自关：通知父窗口失败也不能把窗口留在屏幕上。
+    setTimeout(() => window.close(), notified ? 150 : 0);
     return;
   }
   if (isStandalone && !hasPluginExitApi()) {
