@@ -78,11 +78,19 @@ test.describe('OCR 主页面功能测试', () => {
   test('页面加载成功，显示所有核心元素', async () => {
     await expect(ocrPage.dropArea).toBeVisible()
     await expect(ocrPage.configBtn).toBeVisible()
+    await expect(ocrPage.configBtn).toHaveText('大古截图配置')
     await expect(ocrPage.historyToggle).toBeVisible()
     await expect(ocrPage.historyToggle.locator('..')).toHaveClass(/section-actions/)
     await expect(ocrPage.page.locator('.history-section')).toBeVisible()
     await expect(ocrPage.page.locator('.app-header')).toHaveCount(0)
     await expect(ocrPage.status).toHaveText('')
+  })
+
+  test('主界面的“大古截图配置”入口直接打开配置页', async () => {
+    await ocrPage.openConfig()
+
+    await expect(ocrPage.configPanel).toBeVisible()
+    await expect(ocrPage.page.locator('#configTitle')).toHaveText('大古截图配置')
   })
 
   test('图片 OCR 会从上传开始，显示预览和可编辑结果', async () => {

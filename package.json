@@ -2,7 +2,7 @@
   "name": "dagu-ocr-workspace",
   "version": "1.0.0",
   "private": true,
-  "description": "大古 OCR 的开发、测试与发布工作区",
+  "description": "大古截图的开发、测试与发布工作区",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",

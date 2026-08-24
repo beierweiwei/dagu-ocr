@@ -71,6 +71,16 @@ describe('Plugin entry routing', () => {
     expect(app.showDropArea).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the configuration panel for the setup command', () => {
+    const app = createApp();
+    app.initElements();
+
+    app.onPluginEnter({ code: 'setup' });
+
+    expect(app.state.showConfig).toBe(true);
+    expect(app.state.showUpload).toBe(true);
+  });
+
   it('shows only text input when translation has no payload', () => {
     const app = createApp();
     app.initElements();
