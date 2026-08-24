@@ -40,6 +40,12 @@
       ]
     },
     {
+      "code": "setup",
+      "explain": "首次使用设置",
+      "icon": "icon.png",
+      "cmds": ["大古OCR设置"]
+    },
+    {
       "code": "translate",
       "explain": "翻译文字",
       "icon": "icon.png",

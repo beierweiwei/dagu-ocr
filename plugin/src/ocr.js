@@ -103,8 +103,13 @@ export class OCRApp {
     this.state.providerOptions = await this.providerService.refresh();
     this.ready = true;
     this.emit();
+    if (this.isFirstUse()) this.showConfigPanel();
     this.processPendingPluginEnter();
     return this.state;
+  }
+
+  isFirstUse() {
+    return !this.config.ocrProviderId || !this.config.translationProviderId;
   }
 
   // Kept for compatibility with the previous DOM controller and unit consumers.
@@ -229,6 +234,13 @@ export class OCRApp {
       this.setInputMode('ocr');
       if (type === 'img' && payload) return this.processImageUrlAutoExit(payload);
       return this.handleOCRMain();
+    }
+
+    if (code === 'setup' || code === 'settings') {
+      this.setInputMode('ocr');
+      this.showDropArea();
+      this.showConfigPanel();
+      return;
     }
 
     if (code === 'translate' || code === 'translate-text') {
