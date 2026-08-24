@@ -19,8 +19,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+      - name: Verify system Chrome
+        run: |
+          google-chrome --version || google-chrome-stable --version
 
       - name: Run E2E tests
         run: npm run test:e2e

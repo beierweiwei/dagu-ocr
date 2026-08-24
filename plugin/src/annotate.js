@@ -721,11 +721,6 @@ function startAnnotation(imageUrl) {
             const imgW = fabricCanvas.getWidth();
             const imgH = fabricCanvas.getHeight();
             fitEditorCanvas();
-            const size = canvasDisplaySize(imgW, imgH);
-            console.log('[annotate] DPI:', window.devicePixelRatio,
-              'cssDisplay:', size.width, 'x', size.height,
-              'canvasLogical:', imgW, 'x', imgH,
-              'editor:', size.viewport.width, 'x', size.viewport.height);
             switchMode('select');
             annotationInProgress = false;
             showStatus('图片加载完成');

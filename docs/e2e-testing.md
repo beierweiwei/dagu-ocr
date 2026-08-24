@@ -7,8 +7,9 @@
 # 安装npm依赖
 npm install
 
-# 安装Playwright浏览器
-npm run install:deps
+# E2E 使用系统安装的 Google Chrome，不下载 Playwright 浏览器
+google-chrome --version  # Linux CI
+# Windows 可通过 DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH 指定 chrome.exe
 ```
 
 ### 2. 运行测试
@@ -19,10 +20,8 @@ npm run test:e2e
 # 运行所有测试（有头模式，可看到浏览器操作）
 npm run test:e2e:headed
 
-# 运行特定浏览器测试
-npm run test:e2e:chromium  # Chrome
-npm run test:e2e:firefox   # Firefox
-npm run test:e2e:webkit    # Safari
+# 运行系统 Chrome 测试
+npm run test:e2e:chromium
 
 # 调试模式
 npm run test:e2e:debug
@@ -107,10 +106,8 @@ test('测试上传图片', async ({ page }) => {
 ## 常见问题
 
 ### 1. 测试运行失败，提示找不到浏览器
-确保已经安装了Playwright的浏览器依赖：
-```bash
-npm run install:deps
-```
+确保系统已安装 Google Chrome；必要时通过
+`DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH` 指定 Chrome 可执行文件路径。
 
 ### 2. 剪贴板权限错误
 Playwright配置中已经默认授予了剪贴板权限，如果还有问题，可以检查浏览器的权限设置。
@@ -126,7 +123,7 @@ Playwright配置中已经默认授予了剪贴板权限，如果还有问题，�
 
 ### 5. CI环境运行失败
 - 确保CI环境安装了所有必要的依赖
-- 使用Playwright提供的官方Docker镜像
+- 在 CI 中使用系统已安装的 Google Chrome
 - 增加超时时间，CI环境通常比本地慢
 - 确保服务器在测试运行前已经完全启动
 
@@ -146,7 +143,7 @@ Playwright配置中已经默认授予了剪贴板权限，如果还有问题，�
 ✅ 所有快捷键操作
 ✅ 错误处理和提示
 ✅ 完整流程集成测试
-✅ 多浏览器兼容性测试
+✅ 系统 Chrome 兼容性测试
 
 ### 待扩展功能：
 🔲 实际OCR识别功能测试（需要配置真实密钥）

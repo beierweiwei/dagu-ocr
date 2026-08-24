@@ -4,10 +4,21 @@ import { existsSync } from 'node:fs'
 const e2ePort = process.env.DAGU_OCR_E2E_PORT || '4173'
 const e2eServerUrl = `http://127.0.0.1:${e2ePort}`
 
-function systemChrome() {
+type SystemChrome = {
+  browserName: 'chromium'
+  executablePath?: string
+  channel?: 'chrome'
+  browserLabel: string
+}
+
+function systemChrome(): SystemChrome {
   const configuredPath = process.env.DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH
   if (configuredPath && existsSync(configuredPath)) {
-    return { browserName: 'chromium' as const, executablePath: configuredPath }
+    return {
+      browserName: 'chromium',
+      executablePath: configuredPath,
+      browserLabel: `Google Chrome (${configuredPath})`
+    }
   }
 
   const candidates = process.platform === 'win32'
@@ -16,12 +27,27 @@ function systemChrome() {
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
       `${process.env.LOCALAPPDATA || ''}\\Google\\Chrome\\Application\\chrome.exe`
     ]
-    : []
+    : process.platform === 'darwin'
+      ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+      : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/opt/google/chrome/google-chrome']
   const executablePath = candidates.find((candidate) => existsSync(candidate))
-  return { browserName: 'chromium' as const, executablePath }
+  if (executablePath) {
+    return {
+      browserName: 'chromium',
+      executablePath,
+      browserLabel: `Google Chrome (${executablePath})`
+    }
+  }
+
+  return {
+    browserName: 'chromium',
+    channel: 'chrome',
+    browserLabel: 'Google Chrome (Playwright chrome channel)'
+  }
 }
 
 const defaultBrowser = systemChrome()
+console.log(`[E2E] Browser: ${defaultBrowser.browserLabel}`)
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -34,6 +60,9 @@ export default defineConfig({
     ['junit', { outputFile: 'artifacts/playwright-results.xml' }],
     ['json', { outputFile: 'artifacts/playwright-results.json' }]
   ],
+  metadata: {
+    browser: defaultBrowser.browserLabel
+  },
   use: {
     baseURL: process.env.BASE_URL || e2eServerUrl,
     trace: 'on-first-retry',
@@ -49,6 +78,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         browserName: defaultBrowser.browserName,
+        ...(defaultBrowser.channel ? { channel: defaultBrowser.channel } : {}),
         permissions: ['clipboard-read', 'clipboard-write'], // 授予剪贴板权限
         launchOptions: {
           ...(defaultBrowser.executablePath ? { executablePath: defaultBrowser.executablePath } : {}),
@@ -62,30 +92,6 @@ export default defineConfig({
             ]
           } : {})
         }
-      },
-    },
-    {
-      name: 'firefox',
-      use: {
-        ...devices['Desktop Firefox'],
-        firefoxUserPrefs: {
-          'dom.events.testing.asyncClipboard': true, // 启用异步剪贴板API
-          'media.navigator.permission.disabled': true, // 禁用媒体权限弹窗
-        }
-      },
-    },
-    {
-      name: 'webkit',
-      use: {
-        ...devices['Desktop Safari'],
-        permissions: ['clipboard-read', 'clipboard-write'],
-      },
-    },
-    {
-      name: 'mobile-chrome',
-      use: {
-        ...devices['Pixel 5'],
-        permissions: ['clipboard-read', 'clipboard-write'],
       },
     },
   ],
