@@ -277,6 +277,20 @@ button:disabled { cursor: wait; opacity: .55; }
 .config-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 20px 18px; }
 .config-section { padding: 14px 0; border-bottom: 1px solid #edf1ef; }
 .config-select { margin-top: 11px; }
+.provider-guide { padding: 12px 0 10px; border-bottom: 1px solid #edf1ef; font-size: 12px; }
+.provider-guide summary {
+  cursor: pointer;
+  color: var(--teal);
+  font-weight: 700;
+  user-select: none;
+}
+.provider-guide summary::marker { content: ''; }
+.provider-guide[open] summary { margin-bottom: 8px; }
+.provider-guide-body { color: var(--ink); line-height: 1.7; }
+.provider-guide-body p { margin: 0 0 6px; }
+.provider-guide-body ol { margin: 0 0 6px; padding-left: 18px; display: grid; gap: 8px; }
+.provider-guide-body li strong { color: var(--teal); }
+.provider-guide-body .guide-note { margin: 0; padding: 8px 10px; border-left: 3px solid var(--teal); background: #f2faf8; color: var(--muted); font-size: 11px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px 12px; margin-top: 12px; }
 .form-grid label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 11px; }
 .form-grid input, .form-grid select {

@@ -279,6 +279,26 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="config-scroll">
+          <details class="provider-guide">
+            <summary>如何设置提供商？</summary>
+            <div class="provider-guide-body">
+              <p>插件支持两种识别/翻译服务，二选一即可：</p>
+              <ol>
+                <li>
+                  <strong>ZTools 提供商（推荐）</strong>：在 ZTools 搜索框输入「提供商」或「ZTools 提供商」，安装
+                  <em>ZTools 提供商</em> 插件（f-provider）；打开它的设置页，为 OCR 配置识别渠道、为翻译配置翻译渠道。
+                  完成后回到本设置页，下拉框中会自动出现这些渠道（如「微信 OCR」「AI 识图」「百度翻译」），选中即可使用，
+                  密钥由该插件统一管理，无需在本页填写。
+                </li>
+                <li>
+                  <strong>大古内置提供商</strong>：直接使用下方「OCR Provider / Translation Provider」下拉框中的
+                  「大古内置 · 百度 / 阿里 / MyMemory」选项，并在下方「内置 Provider 密钥」里填入对应服务的密钥。
+                </li>
+              </ol>
+              <p class="guide-note">下拉列表为空或提示「请先选择 Provider」时，说明尚未选择任何提供商，按上面任一方式设置即可。</p>
+            </div>
+          </details>
+
           <section class="config-section">
             <div class="section-heading compact-heading">
               <div><h3>OCR Provider</h3><p>只执行当前选中的一个识别服务。</p></div>
