@@ -5,6 +5,13 @@ import { TEST_IMAGE_1x1, TEST_TEXT } from '../../fixtures/test-data'
 
 async function installMockZTools(page: Page) {
   await page.addInitScript(() => {
+    localStorage.setItem('dagu-ocr.preferences', JSON.stringify({
+      ocrProviderId: 'ztools:mock-ocr',
+      translationProviderId: 'ztools:mock-translation',
+      sourceLang: 'auto',
+      targetLang: 'zh-CN',
+      syncSecrets: false
+    }))
     ;(window as any).ztools = {
       providers: {
         getProviders: async (type: string) => [{ id: `mock-${type}`, label: `测试 ${type}` }],

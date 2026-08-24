@@ -44,6 +44,24 @@ describe('OCR recognition flow', () => {
     expect(app.state.status).toBe('未识别出文字，可手动输入');
   });
 
+  it('reruns OCR for the current image and clears the previous translation', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce('第一次识别')
+      .mockResolvedValueOnce('第二次识别');
+    const app = createApp(invoke);
+
+    await app.recognizeAndUpdate('data:image/png;base64,image');
+    app.state.showTranslateResult = true;
+    app.state.translateResult = '旧译文';
+
+    await app.recognizeAgain();
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(app.state.resultText).toBe('第二次识别');
+    expect(app.state.showTranslateResult).toBe(false);
+    expect(app.state.translateResult).toBe('');
+  });
+
   it('reports the selected provider error without trying another provider', async () => {
     const invoke = vi.fn().mockRejectedValue(new Error('当前 Provider 不可用'));
     const app = createApp(invoke);

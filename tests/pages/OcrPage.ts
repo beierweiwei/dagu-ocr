@@ -14,6 +14,7 @@ export class OcrPage {
   readonly confirmBtn: Locator
   readonly copyBtn: Locator
   readonly translateBtn: Locator
+  readonly ocrAgainBtn: Locator
   readonly translateResult: Locator
   readonly clearBtn: Locator
   readonly editBtn: Locator
@@ -46,6 +47,7 @@ export class OcrPage {
     this.confirmBtn = page.locator('#confirmBtn')
     this.copyBtn = page.locator('#copyBtn')
     this.translateBtn = page.locator('#translateBtn')
+    this.ocrAgainBtn = page.locator('#ocrAgainBtn')
     this.translateResult = page.locator('#translateResult')
     this.clearBtn = page.locator('#clearBtn')
     this.editBtn = page.locator('#edit-image-btn')

@@ -88,6 +88,41 @@ test.describe('图片标注页面核心功能测试', () => {
     await expect(annotatePage.status).toContainText('图片加载完成')
   })
 
+  test('截图后的宽图会自动按原始比例适配编辑区域', async ({ page }) => {
+    await page.goto('/index.html')
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 2400
+      canvas.height = 400
+      const context = canvas.getContext('2d')
+      context?.fillRect(0, 0, canvas.width, canvas.height)
+      localStorage.setItem('ratio-image', canvas.toDataURL('image/png'))
+    })
+    await page.goto('/annotate.html?editorKey=ratio-image&screenshotFlow=1')
+    await annotatePage.waitForImageLoaded()
+
+    const dimensions = await page.evaluate(() => {
+      const canvas = document.querySelector('.tui-image-editor-canvas-container canvas')
+      const box = canvas?.getBoundingClientRect()
+      const logical = (window as any).imageEditor?._graphics?.getCanvas()
+      return {
+        displayWidth: box?.width || 0,
+        displayHeight: box?.height || 0,
+        ratio: (box?.width || 0) / (box?.height || 1),
+        logicalWidth: logical?.getWidth() || 0,
+        logicalHeight: logical?.getHeight() || 0,
+        viewportWidth: window.innerWidth - 24,
+        viewportHeight: window.innerHeight - 80
+      }
+    })
+
+    expect(dimensions.logicalWidth).toBe(2400)
+    expect(dimensions.logicalHeight).toBe(400)
+    expect(dimensions.ratio).toBeCloseTo(6, 1)
+    expect(dimensions.displayWidth).toBeLessThanOrEqual(dimensions.viewportWidth)
+    expect(dimensions.displayHeight).toBeLessThanOrEqual(dimensions.viewportHeight)
+  })
+
   test('矩形标注功能正常', async () => {
     await annotatePage.gotoWithImage(TEST_IMAGE_1x1)
     const countBefore = await annotatePage.getObjectCount()

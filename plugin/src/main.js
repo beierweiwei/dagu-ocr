@@ -40,17 +40,19 @@ function fallbackNavigateToEditor(imageUrl, options = {}) {
 }
 
 function editorWindowSize(imageUrl) {
-  const image = new Image();
-  image.src = imageUrl;
-  const width = image.naturalWidth || 960;
-  const height = image.naturalHeight || 640;
-  return {
-    width: Math.min(Math.max(width + 24, 860), 1400),
-    height: Math.min(Math.max(height + 80, 640), 900)
-  };
+  return new Promise((resolve) => {
+    const fallback = { width: 960, height: 640 };
+    const image = new Image();
+    image.onload = () => resolve({
+      width: Math.min(Math.max(image.naturalWidth + 24, 860), 1400),
+      height: Math.min(Math.max(image.naturalHeight + 80, 640), 900)
+    });
+    image.onerror = () => resolve(fallback);
+    image.src = imageUrl;
+  });
 }
 
-function openEditorWindow(imageUrl, options = {}) {
+async function openEditorWindow(imageUrl, options = {}) {
   const createWindow = win?.ztools?.createBrowserWindow || win?.utools?.createBrowserWindow;
   if (typeof createWindow !== 'function') {
     fallbackNavigateToEditor(imageUrl, options);
@@ -58,7 +60,7 @@ function openEditorWindow(imageUrl, options = {}) {
   }
 
   hideMainWindow();
-  const size = editorWindowSize(imageUrl);
+  const size = await editorWindowSize(imageUrl);
   const url = editorUrl(imageUrl, options);
   let child;
 
@@ -86,7 +88,10 @@ function openEditorWindow(imageUrl, options = {}) {
     child?.show?.();
     child?.focus?.();
     child?.on?.('closed', () => {
-      if (editorWindow === child) editorWindow = null;
+      if (editorWindow !== child) return;
+      editorWindow = null;
+      if (options.returnInput) showMainWindow();
+      else controller?.exitPlugin?.();
     });
   } catch (error) {
     editorWindow = null;
@@ -142,7 +147,7 @@ window.addEventListener('message', (event) => {
         try { editorWindow.close(); } catch { /* 已关闭时忽略 */ }
       }
       editorWindow = null;
-      if (message.returnInput) showMainWindow();
+      if (message.returnInput || message.returnToInput) showMainWindow();
       else controller.exitPlugin();
     }
     return;

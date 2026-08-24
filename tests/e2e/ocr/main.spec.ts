@@ -5,6 +5,13 @@ import { TEST_IMAGE_1x1 } from '../../fixtures/test-data'
 async function installMockZTools(page: Page) {
   await page.addInitScript(() => {
     ;(window as any).__ztoolsExpendHeights = []
+    localStorage.setItem('dagu-ocr.preferences', JSON.stringify({
+      ocrProviderId: 'ztools:mock-ocr',
+      translationProviderId: 'ztools:mock-translation',
+      sourceLang: 'auto',
+      targetLang: 'zh-CN',
+      syncSecrets: false
+    }))
     ;(window as any).ztools = {
       setExpendHeight: (height: number) => {
         ;(window as any).__ztoolsExpendHeights.push(height)
@@ -28,6 +35,13 @@ async function installMockZTools(page: Page) {
 
 async function installMicrosoftMockZTools(page: Page) {
   await page.addInitScript(() => {
+    localStorage.setItem('dagu-ocr.preferences', JSON.stringify({
+      ocrProviderId: 'ztools:mock-ocr',
+      translationProviderId: 'ztools:mock-translation',
+      sourceLang: 'auto',
+      targetLang: 'zh-CN',
+      syncSecrets: false
+    }))
     ;(window as any).ztools = {
       providers: {
         getProviders: async (type: string) => [{
@@ -151,7 +165,7 @@ test.describe('OCR 主页面功能测试', () => {
     await expect(ocrPage.translateResult).toHaveValue('Mock Translation: Mock OCR Result')
     await expect(page.locator('.text-comparison.with-translation')).toBeVisible()
     await expect(ocrPage.previewFrame).toBeHidden()
-    await expect(ocrPage.editBtn).toBeHidden()
+    await expect(ocrPage.editBtn).toBeVisible()
     await expect(ocrPage.togglePreviewBtn).toHaveText('展开预览')
 
     const sourceBox = await page.locator('#sourceTextPane').boundingBox()
@@ -170,6 +184,42 @@ test.describe('OCR 主页面功能测试', () => {
     await ocrPage.togglePreviewBtn.click()
     await expect(ocrPage.previewFrame).toBeVisible()
     await expect(ocrPage.togglePreviewBtn).toHaveText('收起预览')
+  })
+
+  test('OCR 结果支持重新 OCR，并清除旧翻译', async ({ page }) => {
+    await ocrPage.configureMockProviders()
+    await ocrPage.uploadImage({
+      name: 'test.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(TEST_IMAGE_1x1, 'base64')
+    })
+    await ocrPage.translateBtn.click()
+    await expect(ocrPage.translateResult).toHaveValue('Mock Translation: Mock OCR Result')
+
+    await expect(ocrPage.ocrAgainBtn).toBeVisible()
+    await ocrPage.ocrAgainBtn.click()
+
+    await expect(ocrPage.resultText).toHaveValue('Mock OCR Result')
+    await expect(ocrPage.translateResult).toBeHidden()
+  })
+
+  test('翻译结果页编辑图片后仍可直接翻译', async ({ page }) => {
+    await ocrPage.configureMockProviders()
+    await ocrPage.uploadImage({
+      name: 'test.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(TEST_IMAGE_1x1, 'base64')
+    })
+    await ocrPage.translateBtn.click()
+    await expect(ocrPage.translateResult).toHaveValue('Mock Translation: Mock OCR Result')
+
+    await expect(ocrPage.editBtn).toBeVisible()
+    await ocrPage.editImage()
+    await expect(page.locator('#screenshot-actions')).toBeVisible()
+
+    await page.locator('#btn-translate').click()
+    await page.waitForURL(/index\.html.*editorAction=translate/)
+    await expect(page.locator('#translateResult')).toHaveValue('Mock Translation: Mock OCR Result')
   })
 
   test('翻译指令无图片时显示文字输入面板并展示结果', async ({ page }) => {
@@ -214,7 +264,7 @@ test.describe('OCR 主页面功能测试', () => {
     await expect(ocrPage.baiduSkInput).toHaveValue('test-sk')
   })
 
-  test('编辑按钮进入普通图片编辑器，截图动作按钮不显示', async ({ page }) => {
+  test('OCR 结果页编辑器可再次执行 OCR', async ({ page }) => {
     await ocrPage.configureMockProviders()
     await ocrPage.uploadImage({
       name: 'test.png',
@@ -227,7 +277,63 @@ test.describe('OCR 主页面功能测试', () => {
       ocrPage.editImage()
     ])
 
-    await expect(page.locator('#screenshot-actions')).toBeHidden()
+    await expect(page.locator('#screenshot-actions')).toBeVisible()
+    await page.locator('#btn-ocr').click()
+    await page.waitForURL(/index\.html.*editorAction=ocr/)
+    await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
+  })
+
+  test('截图完成后按原图尺寸创建适配的编辑窗口', async ({ page }) => {
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 2400
+      canvas.height = 400
+      const context = canvas.getContext('2d')
+      context?.fillRect(0, 0, canvas.width, canvas.height)
+
+      ;(window as any).__editorWindowOptions = null
+      ;(window as any).ztools.screenCapture = (callback: (image: string) => void) => callback(canvas.toDataURL('image/png'))
+      ;(window as any).ztools.createBrowserWindow = (_url: string, options: Record<string, unknown>) => {
+        ;(window as any).__editorWindowOptions = options
+        return { show: () => {}, focus: () => {}, on: () => {} }
+      }
+    })
+
+    await page.evaluate(() => (window as any).app.onPluginEnter({ code: 'screenshot' }))
+    await expect.poll(() => page.evaluate(() => (window as any).__editorWindowOptions)).toMatchObject({
+      width: 1400,
+      height: 640
+    })
+  })
+
+  test('结果页编辑窗口关闭后恢复主窗口', async ({ page }) => {
+    await page.evaluate(() => {
+      ;(window as any).__showMainWindowCalls = 0
+      ;(window as any).__editorClosed = null
+      ;(window as any).ztools.showMainWindow = () => {
+        ;(window as any).__showMainWindowCalls += 1
+      }
+      ;(window as any).ztools.createBrowserWindow = () => ({
+        show: () => {},
+        focus: () => {},
+        close: () => {},
+        on: (_event: string, callback: () => void) => {
+          ;(window as any).__editorClosed = callback
+        }
+      })
+    })
+
+    await page.evaluate(() => (window as any).app.openEditor(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      { returnInput: true }
+    ))
+    await expect.poll(() => page.evaluate(() => Boolean((window as any).__editorClosed))).toBe(true)
+
+    await page.evaluate(() => window.postMessage({
+      type: 'daguOcrEditorMessage',
+      payload: { event: 'closed', returnToInput: true }
+    }, '*'))
+    await expect.poll(() => page.evaluate(() => (window as any).__showMainWindowCalls)).toBe(1)
   })
 
   test('非图片文件上传显示状态错误', async () => {

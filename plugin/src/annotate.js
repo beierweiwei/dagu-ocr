@@ -920,7 +920,7 @@ function handlePluginEnter(param) {
 bindToolbar();
 bindShortcuts();
 loadSettings(); // 加载保存的设置
-if (screenshotFlow && screenshotActions) screenshotActions.classList.add('show');
+if ((screenshotFlow || returnToInput) && screenshotActions) screenshotActions.classList.add('show');
 if (isStandalone) {
   document.addEventListener('DOMContentLoaded', () => {
     startAnnotation(standaloneImage);

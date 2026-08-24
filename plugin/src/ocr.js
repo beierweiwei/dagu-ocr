@@ -378,6 +378,9 @@ export class OCRApp {
 
   async recognizeAndUpdate(imageUrl, { autoTranslate = false } = {}) {
     if (!imageUrl) return '';
+    this.state.showTranslateResult = false;
+    this.state.translateResult = '';
+    this.state.translationInput = '';
     this.processImageUrl(imageUrl);
     this.state.busy = true;
     this.state.busyLabel = '正在识别';
@@ -408,6 +411,10 @@ export class OCRApp {
   }
 
   async recognizeAndUpdateAutoExit(imageUrl) {
+    return this.recognizeAndUpdate(imageUrl);
+  }
+
+  recognizeAgain(imageUrl = this.state.imageUrl) {
     return this.recognizeAndUpdate(imageUrl);
   }
 

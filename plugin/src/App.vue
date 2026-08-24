@@ -41,6 +41,7 @@ const openEditor = () => {
 };
 
 const submitTranslation = () => props.controller.translateTextInput();
+const recognizeAgain = () => props.controller.recognizeAgain(state.imageUrl);
 const translateResult = () => {
   previewExpanded.value = false;
   return props.controller.translateAndUpdate(state.resultText);
@@ -165,7 +166,7 @@ onBeforeUnmount(() => {
         <div v-show="!previewCollapsed" class="preview-frame">
           <img id="previewImg" :src="state.imageUrl" alt="待处理图片">
         </div>
-        <button v-show="!previewCollapsed" id="edit-image-btn" class="secondary-button full-button" type="button" @click="openEditor">编辑图片</button>
+        <button id="edit-image-btn" class="secondary-button full-button" type="button" :disabled="state.busy" @click="openEditor">编辑图片</button>
       </div>
 
       <div v-if="state.showResult" id="resultArea" class="result-area" :class="{ show: state.showResult }">
@@ -218,6 +219,7 @@ onBeforeUnmount(() => {
         <div class="actions-row">
           <button id="confirmBtn" class="primary-button" type="button" @click="props.controller.confirmResult">复制结果</button>
           <button id="copyBtn" class="secondary-button" type="button" @click="props.controller.copyResult">复制文本</button>
+          <button id="ocrAgainBtn" class="secondary-button" type="button" :disabled="state.busy" @click="recognizeAgain">重新 OCR</button>
           <button id="translateBtn" class="secondary-button accent-button" type="button" :disabled="state.busy" @click="translateResult">翻译</button>
           <button id="clearBtn" class="ghost-button" type="button" @click="props.controller.clearAll">清空</button>
         </div>
