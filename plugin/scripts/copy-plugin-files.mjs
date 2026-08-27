@@ -6,6 +6,6 @@ const distDir = fileURLToPath(new URL('../dist/', import.meta.url))
 
 mkdirSync(distDir, { recursive: true })
 
-for (const file of ['plugin.json', 'preload.js', 'icon.png', 'LICENSE']) {
+for (const file of ['plugin.json', 'preload.js', 'icon.png', 'LICENSE', 'CHANGELOG.md']) {
   copyFileSync(`${pluginRoot}${file}`, `${distDir}${file}`)
 }
