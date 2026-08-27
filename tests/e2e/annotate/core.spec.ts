@@ -225,4 +225,62 @@ test.describe('图片标注页面核心功能测试', () => {
     })
     expect(await annotatePage.getObjectCount()).toBe(0)
   })
+
+  test('下载按钮会将标注结果保存为图片文件', async ({ page }) => {
+    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+    await annotatePage.addText('测试下载')
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.locator('#btn-download').click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toContain('annotated-image')
+    await expect(annotatePage.status).toHaveText('图片已下载')
+  })
+
+  test('滚轮可以在光标位置缩放画布', async ({ page }) => {
+    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+    const canvas = page.locator('.tui-image-editor-canvas-container canvas').first()
+    const before = await canvas.boundingBox()
+    expect(before).not.toBeNull()
+
+    const viewerBox = await page.locator('#viewer').boundingBox()
+    expect(viewerBox).not.toBeNull()
+    await page.mouse.move(viewerBox!.x + viewerBox!.width / 2, viewerBox!.y + viewerBox!.height / 2)
+    for (let i = 0; i < 4; i++) {
+      await page.mouse.wheel(0, -120)
+    }
+    await page.waitForTimeout(150)
+
+    await expect(annotatePage.status).toContainText('缩放')
+    const after = await canvas.boundingBox()
+    expect(after!.width).toBeGreaterThan(before!.width)
+  })
+
+  test('放大到超出查看区后可在空白处拖动图片', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 320 })
+    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+
+    const viewerBox = await page.locator('#viewer').boundingBox()
+    expect(viewerBox).not.toBeNull()
+    const cx = viewerBox!.x + viewerBox!.width / 2
+    const cy = viewerBox!.y + viewerBox!.height / 2
+    await page.mouse.move(cx, cy)
+    for (let i = 0; i < 8; i++) {
+      await page.mouse.wheel(0, -120)
+    }
+    await page.waitForTimeout(150)
+
+    const container = page.locator('.tui-image-editor-canvas-container')
+    const before = await container.boundingBox()
+    expect(before).not.toBeNull()
+
+    await page.mouse.move(cx, cy)
+    await page.mouse.down()
+    await page.mouse.move(cx - 40, cy, { steps: 8 })
+    await page.mouse.up()
+    await page.waitForTimeout(150)
+
+    const after = await container.boundingBox()
+    expect(after!.x).toBeLessThan(before!.x)
+  })
 })

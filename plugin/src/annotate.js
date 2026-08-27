@@ -116,6 +116,7 @@ function finishEditorCopy(dataURL) {
 // ── DOM refs ──
 const $ = (id) => document.getElementById(id);
 const editorContainer = $('editor-container');
+const viewer = $('viewer') || editorContainer;
 const loadingEl = $('loading');
 const dialogOverlay = $('dialog-overlay');
 const dialogTitle = $('dialog-title');
@@ -132,6 +133,7 @@ const btnUndo = $('btn-undo');
 const btnRedo = $('btn-redo');
 const btnClear = $('btn-clear');
 const btnCopy = $('btn-copy');
+const btnDownload = $('btn-download');
 const btnCancel = $('btn-cancel');
 const closeBtn = $('close-btn');
 const screenshotActions = $('screenshot-actions');
@@ -542,35 +544,153 @@ function canvasDisplaySize(width, height) {
   return { width: displayWidth, height: displayHeight, viewport };
 }
 
-function fitEditorCanvas() {
+// 缩放与平移状态：viewZoom 是相对“适配窗口”尺寸的倍率，viewPos 是画布容器左上角相对查看区的位置
+let viewZoom = 1;
+let viewPos = { x: 0, y: 0 };
+let panningFlag = false;
+let panStartScreen = null;
+
+function viewerViewport() {
+  return {
+    width: Math.max(viewer?.clientWidth || window.innerWidth, 1),
+    height: Math.max(viewer?.clientHeight || window.innerHeight, 1)
+  };
+}
+
+function scaledDisplaySize() {
+  if (!imageEditor) return null;
+  const fabricCanvas = imageEditor._graphics.getCanvas();
+  const base = canvasDisplaySize(fabricCanvas.getWidth(), fabricCanvas.getHeight());
+  return {
+    width: Math.max(1, Math.round(base.width * viewZoom)),
+    height: Math.max(1, Math.round(base.height * viewZoom))
+  };
+}
+
+// 画布没超过查看区时始终居中；超过后可拖动，但限制在查看区范围内
+function clampViewPos(width, height) {
+  const vp = viewerViewport();
+  const x = width <= vp.width
+    ? Math.round((vp.width - width) / 2)
+    : Math.round(Math.min(0, Math.max(vp.width - width, viewPos.x)));
+  const y = height <= vp.height
+    ? Math.round((vp.height - height) / 2)
+    : Math.round(Math.min(0, Math.max(vp.height - height, viewPos.y)));
+  return { x, y };
+}
+
+function isZoomedBeyondViewport() {
+  const size = scaledDisplaySize();
+  if (!size) return false;
+  const vp = viewerViewport();
+  return size.width > vp.width || size.height > vp.height;
+}
+
+function applyViewport() {
   if (!imageEditor) return;
   const fabricCanvas = imageEditor._graphics.getCanvas();
-  const size = canvasDisplaySize(fabricCanvas.getWidth(), fabricCanvas.getHeight());
-  const canvasElement = fabricCanvas.getElement();
-  if (canvasElement) {
-    canvasElement.style.width = size.width + 'px';
-    canvasElement.style.height = size.height + 'px';
-  }
+  const size = scaledDisplaySize();
+  if (!size) return;
+  const pos = clampViewPos(size.width, size.height);
+  viewPos = pos;
 
-  const canvases = editorContainer.querySelectorAll(
+  const canvasElement = fabricCanvas.getElement();
+  canvasElement.style.width = size.width + 'px';
+  canvasElement.style.height = size.height + 'px';
+
+  viewer.querySelectorAll(
     '.tui-image-editor-canvas-container, .tui-image-editor-canvas-container canvas, .canvas-container, .canvas-container canvas'
-  );
-  canvases.forEach((element) => {
+  ).forEach((element) => {
     element.style.maxWidth = '';
     element.style.maxHeight = '';
   });
 
-  const canvasContainer = editorContainer.querySelector('.tui-image-editor-canvas-container')
-    || editorContainer.querySelector('.canvas-container');
+  const canvasContainer = viewer.querySelector('.tui-image-editor-canvas-container')
+    || viewer.querySelector('.canvas-container');
   if (canvasContainer) {
     canvasContainer.style.width = size.width + 'px';
     canvasContainer.style.height = size.height + 'px';
+    canvasContainer.style.position = 'absolute';
+    canvasContainer.style.left = pos.x + 'px';
+    canvasContainer.style.top = pos.y + 'px';
   }
   fabricCanvas.renderAll();
 }
 
+function fitEditorCanvas() {
+  viewZoom = 1;
+  applyViewport();
+}
+
 function handleEditorResize() {
   window.requestAnimationFrame(fitEditorCanvas);
+}
+
+// ── 缩放与平移交互 ──
+// 滚轮在光标位置缩放；图片被放大到超出查看区后，在空白处按住左键可拖动
+function handleWheel(e) {
+  if (!imageEditor) return;
+  e.preventDefault();
+  const before = scaledDisplaySize();
+  if (!before) return;
+  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+  viewZoom = Math.min(8, Math.max(0.2, viewZoom * factor));
+  const after = scaledDisplaySize();
+  const rect = viewer.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const fx = before.width ? (cx - viewPos.x) / before.width : 0.5;
+  const fy = before.height ? (cy - viewPos.y) / before.height : 0.5;
+  viewPos.x = Math.round(cx - fx * after.width);
+  viewPos.y = Math.round(cy - fy * after.height);
+  applyViewport();
+  showStatus('缩放 ' + Math.round(viewZoom * 100) + '%');
+}
+
+function beginPan(e) {
+  if (!imageEditor || activeMode !== 'select' || e.button !== 0) return;
+  if (!isZoomedBeyondViewport()) return;
+  const fabricCanvas = imageEditor._graphics.getCanvas();
+  let hit = true;
+  try {
+    hit = !!(fabricCanvas.findTarget && fabricCanvas.findTarget(e));
+  } catch (err) {
+    // 拾取失败时保持默认为已命中，避免干扰对象拖动
+    hit = true;
+  }
+  if (hit) return;
+  panningFlag = true;
+  panStartScreen = { x: e.clientX, y: e.clientY, pos: { x: viewPos.x, y: viewPos.y } };
+  fabricCanvas.selection = false;
+  fabricCanvas.defaultCursor = 'grabbing';
+  showStatus('拖动图片位置');
+}
+
+function movePan(e) {
+  if (!panningFlag || !panStartScreen || !imageEditor) return;
+  const fabricCanvas = imageEditor._graphics.getCanvas();
+  viewPos.x = panStartScreen.pos.x + (e.clientX - panStartScreen.x);
+  viewPos.y = panStartScreen.pos.y + (e.clientY - panStartScreen.y);
+  fabricCanvas.defaultCursor = 'grabbing';
+  applyViewport();
+}
+
+function endPan() {
+  if (!panningFlag) return;
+  panningFlag = false;
+  panStartScreen = null;
+  if (imageEditor && activeMode === 'select') {
+    const fabricCanvas = imageEditor._graphics.getCanvas();
+    fabricCanvas.selection = true;
+    fabricCanvas.defaultCursor = 'default';
+  }
+}
+
+function bindViewportInteraction() {
+  viewer.addEventListener('mousedown', beginPan, true);
+  window.addEventListener('mousemove', movePan);
+  window.addEventListener('mouseup', endPan);
+  viewer.addEventListener('wheel', handleWheel, { passive: false });
 }
 
 // ── DataURL to Blob conversion ──
@@ -667,6 +787,22 @@ async function copyToClipboard() {
     console.error('[annotate] 导出失败:', e);
   }
 }
+// ── Download to file ──
+function downloadImage() {
+  if (!imageEditor) return;
+  const dataURL = currentCanvasDataUrl();
+  if (!dataURL) return;
+  const blob = dataURLToBlob(dataURL);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'annotated-image.png';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+  showStatus('图片已下载');
+}
 // ── Exit / Cleanup ──
 function cleanup() {
   try {
@@ -707,7 +843,7 @@ function startAnnotation(imageUrl) {
       if (loadingEl) loadingEl.classList.remove('show');
 
       try {
-        const editor = new tui.ImageEditor(editorContainer, {
+        const editor = new tui.ImageEditor(viewer, {
           includeUI: false,
           useDefaultUI: false,
         });
@@ -849,6 +985,7 @@ function bindToolbar() {
     }
   });
   btnCopy.addEventListener('click', copyToClipboard);
+  if (btnDownload) btnDownload.addEventListener('click', downloadImage);
   if (btnOcr) btnOcr.addEventListener('click', () => sendScreenshotAction('ocr'));
   if (btnTranslate) btnTranslate.addEventListener('click', () => sendScreenshotAction('translate'));
 
@@ -914,6 +1051,7 @@ function handlePluginEnter(param) {
 // ── Initialization ──
 bindToolbar();
 bindShortcuts();
+bindViewportInteraction();
 loadSettings(); // 加载保存的设置
 if ((screenshotFlow || returnToInput) && screenshotActions) screenshotActions.classList.add('show');
 if (isStandalone) {

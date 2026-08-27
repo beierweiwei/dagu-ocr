@@ -19,7 +19,10 @@
       "mainHide": true,
       "explain": "截图",
       "icon": "icon.png",
-      "cmds": ["截图"]
+      "cmds": [
+        "截图",
+        "Screenshot"
+      ]
     },
     {
       "code": "edit-image",
@@ -27,6 +30,7 @@
       "icon": "icon.png",
       "cmds": [
         "编辑图片",
+        "Edit Image",
         { "type": "img", "label": "编辑图片" }
       ]
     },
@@ -36,6 +40,7 @@
       "icon": "icon.png",
       "cmds": [
         "OCR",
+        "Image OCR",
         { "type": "img", "label": "图片 OCR" }
       ]
     },
@@ -43,7 +48,10 @@
       "code": "setup",
       "explain": "配置",
       "icon": "icon.png",
-      "cmds": ["大古截图配置"]
+      "cmds": [
+        "配置",
+        "Settings"
+      ]
     },
     {
       "code": "translate",
@@ -53,6 +61,12 @@
         {
           "type": "over",
           "label": "翻译文字",
+          "minLength": 1,
+          "maxLength": 10000
+        },
+        {
+          "type": "over",
+          "label": "Translate Text",
           "minLength": 1,
           "maxLength": 10000
         }

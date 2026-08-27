@@ -238,7 +238,7 @@ onBeforeUnmount(() => {
           <h2>最近识别</h2>
         </div>
         <div class="section-actions">
-          <button id="configBtn" class="icon-button" type="button" title="打开大古截图配置" @click="props.controller.showConfigPanel()">大古截图配置</button>
+          <button id="configBtn" class="icon-button" type="button" title="打开配置" @click="props.controller.showConfigPanel()">配置</button>
           <button id="historyToggle" class="text-button" type="button" title="查看识别历史" :aria-expanded="state.historyExpanded" @click="props.controller.toggleHistory">{{ state.historyExpanded ? '收起' : '展开' }}</button>
         </div>
       </div>
@@ -275,7 +275,7 @@ onBeforeUnmount(() => {
         <header class="config-header">
           <div>
             <span class="eyebrow">SETTINGS</span>
-            <h2 id="configTitle">大古截图配置</h2>
+            <h2 id="configTitle">配置</h2>
           </div>
           <button id="closeConfigBtn" class="icon-button" type="button" title="关闭设置" @click="props.controller.hideConfigPanel">关闭</button>
         </header>
