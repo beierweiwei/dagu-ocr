@@ -15,7 +15,7 @@
     "test:e2e:report": "playwright show-report artifacts/playwright-report",
     "test:e2e:chromium": "playwright test --project=chromium",
     "install:ztools": "npm run build && node plugin/scripts/install-to-ztools.mjs",
-    "publish:plugin": "npm run build && cd plugin/dist && ztools publish"
+    "publish:plugin": "npm run build && cd plugin && ztools publish"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

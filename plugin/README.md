@@ -13,15 +13,15 @@
 
 截图标注编辑器：深色画布上圈选、画箭头、写文字、打马赛克，完成后复制或下载成图片。编辑时可以用鼠标滚轮缩放，放大后按住空白处拖动图片。
 
-![截图标注编辑器](./plugin/docs/screenshots/annotate-editor.png)
+![截图标注编辑器](./docs/screenshots/annotate-editor.png)
 
 主工作区：左边是当前图片，右边是识别结果（可直接编辑），下方可以复制文本、重新识别或翻译。
 
-![主工作区：图片识别与结果](./plugin/docs/screenshots/main-ocr.png)
+![主工作区：图片识别与结果](./docs/screenshots/main-ocr.png)
 
 识别出来的文字原文和译文左右对照，随时复制任一侧。
 
-![翻译结果：原文与译文对照](./plugin/docs/screenshots/translation.png)
+![翻译结果：原文与译文对照](./docs/screenshots/translation.png)
 
 ## 如何使用
 
@@ -53,21 +53,6 @@ OCR 和翻译各选一个「提供商」（Provider）即可，二选一：
 - 偏好设置保存在 ZTools 的 `dbStorage`，密钥默认**只保存在本机**。
 - 只有手动开启「同步密钥」后，密钥才会写入会随备份同步的副本——请只在你信任的同步环境里开启。
 - 识别历史记录始终保存在本机，可在设置旁展开查看、复制或清空。
-
-## 为开发者准备的信息
-
-```bash
-npm install        # 安装依赖
-npm run dev        # 本地开发（Vite dev server）
-npm test           # 单元测试
-npm run test:e2e:chromium  # E2E 测试（使用系统 Chrome）
-npm run build      # 构建到 plugin/dist/
-npm run publish:plugin    # 发布插件
-```
-
-E2E 使用系统安装的 Chrome，可通过环境变量 `DAGU_OCR_PLAYWRIGHT_EXECUTABLE_PATH` 指定 Chrome 路径；默认检测常见 Windows 安装位置，不会额外下载浏览器。
-
-功能与使用上的行为约定见 [docs/requirements.md](./docs/requirements.md)。
 
 ## 许可
 
