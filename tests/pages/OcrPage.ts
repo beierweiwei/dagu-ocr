@@ -12,7 +12,9 @@ export class OcrPage {
   readonly resultArea: Locator
   readonly resultText: Locator
   readonly confirmBtn: Locator
-  readonly copyBtn: Locator
+  readonly copyImageBtn: Locator
+  readonly copySourceBtn: Locator
+  readonly copyTranslateBtn: Locator
   readonly translateBtn: Locator
   readonly ocrAgainBtn: Locator
   readonly translateResult: Locator
@@ -45,7 +47,9 @@ export class OcrPage {
     this.resultArea = page.locator('.result-area')
     this.resultText = page.locator('#resultText')
     this.confirmBtn = page.locator('#confirmBtn')
-    this.copyBtn = page.locator('#copyBtn')
+    this.copyImageBtn = page.locator('#copy-image-btn')
+    this.copySourceBtn = page.locator('#copySourceBtn')
+    this.copyTranslateBtn = page.locator('#copyTranslateBtn')
     this.translateBtn = page.locator('#translateBtn')
     this.ocrAgainBtn = page.locator('#ocrAgainBtn')
     this.translateResult = page.locator('#translateResult')
@@ -87,6 +91,12 @@ export class OcrPage {
     })
   }
 
+  // 预览缩放/拖动需要用大图，1x1 的测试图看不出差异。
+  async uploadCanvasImage(generate: string, filename = 'canvas.png') {
+    const dataUrl: string = await this.page.evaluate(generate)
+    await this.uploadImageFromBase64(dataUrl.split(',')[1], filename)
+  }
+
   async waitForRecognition() {
     await this.loading.waitFor({ state: 'visible' })
     await this.loading.waitFor({ state: 'hidden', timeout: 30000 })
@@ -98,7 +108,7 @@ export class OcrPage {
   }
 
   async copyResult() {
-    await this.copyBtn.click()
+    await this.copySourceBtn.click()
     await expect(this.status).toContainText('已复制')
   }
 

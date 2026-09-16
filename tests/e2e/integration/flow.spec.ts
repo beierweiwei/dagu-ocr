@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 import { OcrPage } from '../../pages/OcrPage'
-import { AnnotatePage } from '../../pages/AnnotatePage'
-import { TEST_IMAGE_1x1, TEST_TEXT } from '../../fixtures/test-data'
+import { CaptureOverlayPage } from '../../pages/CaptureOverlayPage'
+import { TEST_IMAGE_1x1 } from '../../fixtures/test-data'
 
 async function installMockZTools(page: Page) {
   await page.addInitScript(() => {
@@ -31,12 +31,11 @@ test.describe('完整流程集成测试', () => {
     await installMockZTools(page)
   })
 
-  test('OCR识别 -> 编辑图片 -> 复制结果 完整流程', async ({ page }) => {
+  test('OCR识别 -> 编辑图片 -> 交给 OCR 的完整流程', async ({ page }) => {
     const ocrPage = new OcrPage(page)
     await ocrPage.goto()
     await ocrPage.configureMockProviders()
 
-    // 1. 上传图片
     await ocrPage.uploadImage({
       name: 'test.png',
       mimeType: 'image/png',
@@ -45,80 +44,52 @@ test.describe('完整流程集成测试', () => {
     await expect(ocrPage.preview).toBeVisible()
     await ocrPage.closeConfig()
 
-    // 2. 点击编辑按钮跳转到标注页面
-    await Promise.all([
-      page.waitForNavigation({ url: /annotate\.html/ }),
-      ocrPage.editImage()
-    ])
+    // 编辑图片与截图共用同一覆盖层：没有子窗口能力时在同一窗口打开图片编辑模式
+    await ocrPage.editImage()
+    await page.waitForURL(/overlay\.html.*mode=image/)
 
-    // 3. 在标注页面进行编辑
-    const annotatePage = new AnnotatePage(page)
-    await annotatePage.waitForImageLoaded()
+    const editor = new CaptureOverlayPage(page)
+    await editor.waitForReady()
+    expect((await editor.state()).mode).toBe('image')
 
-    // 添加一些标注
-    await annotatePage.drawRect(10, 10, 50, 50)
-    await annotatePage.addText(TEST_TEXT.SHORT)
-    await annotatePage.drawArrow(10, 60, 90, 60)
+    // 在图片上画标注：矩形 + 文字
+    await editor.tool('shape').click()
+    await editor.drag({ x: 12, y: 12 }, { x: 44, y: 44 })
+    await editor.tool('text').click()
+    await page.mouse.click(60, 60)
+    await page.keyboard.type('标注文字')
+    await page.keyboard.press('Enter')
 
-    const objectCount = await annotatePage.getObjectCount()
-    expect(objectCount).toBeGreaterThanOrEqual(3)
+    await expect.poll(async () => editor.annotationCount()).toBe(2)
 
-    // 4. 复制编辑后的图片
+    // 交给 OCR 节点：没有宿主窗口时退回同窗口跳转
     await Promise.all([
       page.waitForURL(/index\.html.*editorAction=ocr/),
-      annotatePage.btnCopy.click()
+      page.locator('#capture-ocr').click()
     ])
     await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
   })
 
-  test('直接访问标注页面，没有截图API时显示文件选择', async ({ page }) => {
-    // Mock 没有截图API的环境
-    await page.addInitScript(() => {
-      delete window.ztools
-      delete window.utools
-      ;(window as Window & { __filePickerOpened?: boolean }).__filePickerOpened = false
-      const inputClick = HTMLInputElement.prototype.click
-      HTMLInputElement.prototype.click = function() {
-        if (this.type === 'file') {
-          ;(window as Window & { __filePickerOpened?: boolean }).__filePickerOpened = true
-        }
-        return inputClick.call(this)
-      }
-    })
-
-    const annotatePage = new AnnotatePage(page)
-    await page.goto('/annotate.html?code=screenshot-annotate')
-    await page.waitForLoadState('networkidle')
-
-    // 应该显示提示不支持截图功能，然后弹出文件选择框
-    await expect(annotatePage.status).toContainText('当前环境不支持截图功能', { timeout: 5000 })
-
-    expect(await page.locator('input[type="file"]').count()).toBe(1)
-    expect(await page.evaluate(() => (window as Window & { __filePickerOpened?: boolean }).__filePickerOpened)).toBe(true)
-  })
-
-  test('截图编辑器可以把当前图片交给 OCR 或翻译节点', async ({ page }) => {
+  test('图片编辑器可以把当前图片交给翻译节点', async ({ page }) => {
     const ocrPage = new OcrPage(page)
     await ocrPage.goto()
     await ocrPage.configureMockProviders()
 
-    const annotatePage = new AnnotatePage(page)
-    await annotatePage.gotoStandaloneWithImage(TEST_IMAGE_1x1, true)
+    const editor = new CaptureOverlayPage(page)
+    await editor.gotoImageEditor(TEST_IMAGE_1x1)
+    await expect(page.locator('#capture-ocr')).toBeVisible()
+    await expect(page.locator('#capture-translate')).toBeVisible()
 
-    await expect(annotatePage.btnOcr).toBeVisible()
-    await expect(annotatePage.btnTranslate).toBeVisible()
-
-    await annotatePage.btnTranslate.click()
+    await page.locator('#capture-translate').click()
     await page.waitForURL(/index\.html.*editorAction=translate/)
     await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
     await expect(page.locator('#translateResult')).toHaveValue('Mock Translation: Mock OCR Result')
   })
 
-  test('配置保存后跳转编辑页面，配置不丢失', async ({ page }) => {
+  test('配置保存后进入图片编辑器，配置不丢失', async ({ page }) => {
     const ocrPage = new OcrPage(page)
     await ocrPage.goto()
 
-    // 保存配置
     await ocrPage.openConfig()
     await ocrPage.ocrProviderSelect.selectOption('ztools:mock-ocr')
     await ocrPage.translationProviderSelect.selectOption('ztools:mock-translation')
@@ -126,19 +97,18 @@ test.describe('完整流程集成测试', () => {
     const testSk = 'test-integration-sk-456'
     await ocrPage.saveConfig(testAk, testSk)
 
-    // 上传图片并跳转到编辑页面
     await ocrPage.uploadImage({
       name: 'test.png',
       mimeType: 'image/png',
       buffer: testImageBuffer
     })
 
-    await Promise.all([
-      page.waitForNavigation({ url: /annotate\.html/ }),
-      ocrPage.editImage()
-    ])
+    await ocrPage.editImage()
+    await page.waitForURL(/overlay\.html.*mode=image/)
+    const editor = new CaptureOverlayPage(page)
+    await editor.waitForReady()
 
-    // 返回OCR页面，验证配置仍然存在
+    // 返回 OCR 页面，验证配置仍然存在
     await page.goBack()
     await ocrPage.openConfig()
     expect(await ocrPage.baiduAkInput.inputValue()).toBe(testAk)
@@ -147,6 +117,87 @@ test.describe('完整流程集成测试', () => {
 })
 
 test.describe('截图窗口回退流程', () => {
+  test('截图触发瞬间并行抓帧，并把预抓帧键交给覆盖层', async ({ page }) => {
+    const captureImage = `data:image/png;base64,${TEST_IMAGE_1x1}`
+
+    await page.addInitScript((imageUrl) => {
+      const calls: string[] = []
+      ;(window as any).__flowCalls = calls
+      ;(window as any).__overlayWindowUrl = null
+      localStorage.setItem('dagu-ocr.preferences', JSON.stringify({
+        ocrProviderId: 'ztools:mock-ocr',
+        translationProviderId: 'ztools:mock-translation',
+        sourceLang: 'auto',
+        targetLang: 'zh-CN',
+        syncSecrets: false
+      }))
+
+      window.ztools = {
+        providers: {
+          getProviders: async (type) => [{ id: `mock-${type}`, label: `测试 ${type}` }],
+          invokeProvider: async (type, input) => (
+            type === 'ocr' ? 'Mock OCR Result' : `Mock Translation: ${input.text || ''}`
+          )
+        },
+        copyText: () => true,
+        hideMainWindow: () => {},
+        showMainWindow: () => {},
+        getCursorScreenPoint: () => ({ x: 640, y: 360 }),
+        screenToDipPoint: (point) => point,
+        getDisplayNearestPoint: () => ({
+          id: 1,
+          bounds: { x: 0, y: 0, width: 1280, height: 720 },
+          scaleFactor: 1
+        }),
+        desktopCaptureSources: async () => {
+          calls.push('desktopCaptureSources')
+          return [{
+            id: 'screen:0:0',
+            display_id: 1,
+            thumbnail: {
+              getSize: () => ({ width: 1280, height: 720 }),
+              toDataURL: () => imageUrl
+            }
+          }]
+        },
+        createBrowserWindow: (url: string) => {
+          calls.push('createBrowserWindow')
+          ;(window as any).__overlayWindowUrl = url
+          return {
+            close: () => {},
+            show: () => {},
+            focus: () => {},
+            isVisible: () => true,
+            setBounds: () => {},
+            moveTop: () => {}
+          }
+        }
+      }
+    }, captureImage)
+
+    await page.goto('/index.html')
+    await page.waitForLoadState('networkidle')
+    await page.evaluate(() => window.app.onPluginEnter({ code: 'screenshot' }))
+
+    // 抓帧与窗口创建并行：覆盖层窗口不等抓帧结果就创建
+    await expect.poll(() => page.evaluate(() => (window as any).__flowCalls)).toEqual([
+      'createBrowserWindow',
+      'desktopCaptureSources'
+    ])
+
+    const overlayUrl = await page.evaluate(() => (window as any).__overlayWindowUrl)
+    expect(overlayUrl).toContain('overlay.html')
+    expect(overlayUrl).toContain('mode=screen')
+    const primeKey = decodeURIComponent(String(overlayUrl).match(/primeKey=([^&]+)/)?.[1] || '')
+    expect(primeKey).toMatch(/^dagu-ocr-capture-/)
+
+    // 抓帧在覆盖层加载期间完成，画面已写入预抓帧键
+    await expect.poll(() => page.evaluate(
+      (key) => localStorage.getItem(key),
+      primeKey
+    )).toContain('data:image/png')
+  })
+
   test('子窗口创建失败时回退到同一窗口且操作可点击', async ({ page }) => {
     const captureImage = `data:image/png;base64,${TEST_IMAGE_1x1}`
     const createWindowKey = '__daguOcrCreateBrowserWindowCalls'
@@ -188,17 +239,21 @@ test.describe('截图窗口回退流程', () => {
     await page.goto('/index.html')
     await page.waitForLoadState('networkidle')
 
+    // 覆盖层窗口创建失败 → 回退系统截图 → 编辑窗口创建失败 → 同一窗口打开图片编辑模式
     await Promise.all([
-      page.waitForURL(/annotate\.html/),
+      page.waitForURL(/overlay\.html.*mode=image/),
       page.evaluate(() => window.app.onPluginEnter({ code: 'screenshot' }))
     ])
-    await expect(page.locator('#btn-ocr')).toBeVisible()
+    const editor = new CaptureOverlayPage(page)
+    await editor.waitForReady()
+    await expect(page.locator('#capture-ocr')).toBeVisible()
     expect(await page.evaluate(() => window.opener === null)).toBe(true)
-    expect(await page.evaluate((key) => localStorage.getItem(key), createWindowKey)).toBe('1')
+    // 覆盖层窗口与编辑窗口各尝试创建一次，都被拒绝后回退到同窗口编辑
+    expect(await page.evaluate((key) => localStorage.getItem(key), createWindowKey)).toBe('2')
 
     await Promise.all([
       page.waitForURL(/index\.html.*editorAction=ocr/),
-      page.locator('#btn-ocr').click()
+      page.locator('#capture-ocr').click()
     ])
     await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
     await page.locator('#confirmBtn').click()
