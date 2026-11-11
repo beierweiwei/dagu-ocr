@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { CaptureOverlayPage, installZtoolsStub } from '../../pages/CaptureOverlayPage'
+import { CaptureOverlayPage, installZtoolsStub, overlayUrl } from '../../pages/CaptureOverlayPage'
 
 test.describe('沉浸式截图覆盖层', () => {
   let overlay: CaptureOverlayPage
@@ -55,6 +55,30 @@ test.describe('沉浸式截图覆盖层', () => {
     const ready = (await overlay.sentEvents('ready')).at(-1)
     expect(ready).toMatchObject({ pixelSize: { width: 1280, height: 720 } })
     expect((await overlay.state()).finished).toBe(false)
+  })
+
+  test('HDR 环境输出全白画面时回退系统截图', async ({ page }) => {
+    await page.addInitScript(() => {
+      const captureSources = (window as any).ztools.desktopCaptureSources
+      ;(window as any).ztools.desktopCaptureSources = async (options: any) => {
+        const sources = await captureSources(options)
+        const canvas = document.createElement('canvas')
+        canvas.width = 2
+        canvas.height = 2
+        const context = canvas.getContext('2d') as CanvasRenderingContext2D
+        context.fillStyle = '#ffffff'
+        context.fillRect(0, 0, canvas.width, canvas.height)
+        const url = canvas.toDataURL('image/png')
+        sources[0].thumbnail.getSize = () => ({ width: 2, height: 2 })
+        sources[0].thumbnail.toDataURL = () => url
+        return sources
+      }
+    })
+
+    await page.goto(overlayUrl())
+
+    await expect.poll(async () => overlay.sentEvents('captureFailed')).toHaveLength(1)
+    expect(await overlay.state()).toMatchObject({ ready: false, finished: false })
   })
 
   test('拖拽选区显示尺寸标签、工具条，并在选区外加深遮罩', async () => {

@@ -9,3 +9,4 @@
 | [本机补丁工具与 CRLF 行尾](本机补丁工具与CRLF.md) | 用 `apply_patch` 改本仓库文件却报 “Failed to find expected lines”，或文件出现混合行尾时。 | 有效 | 3 |
 | [ZTools 截图要预抓帧](ztools-截图预抓帧.md) | 改截图触发链路、优化“按下截图后多久看到画面”，或要在两个窗口间交接大图时。 | 有效 | 1 |
 | [fabric toDataURL 裁剪选项是视口坐标](fabric-toDataURL裁剪是视口坐标.md) | 改覆盖层导出/裁剪（`exportDataUrl`、`toDataURL` 的 `left/top/width/height`），或发现“缩放后导出内容错位、1:1 时正常”时。 | 待审核 | 0 |
+| [HDR 下 desktopCapturer 可能输出全白帧](HDR下desktopCapturer可能输出全白帧.md) | 处理 Windows HDR 显示器截图全白、过曝或采集质量回退时。 | 待审核 | 0 |

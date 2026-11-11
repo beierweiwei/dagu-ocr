@@ -198,6 +198,86 @@ test.describe('截图窗口回退流程', () => {
     )).toContain('data:image/png')
   })
 
+  test('覆盖层采集失败后回退 ZTools 系统截图', async ({ page }) => {
+    const captureImage = `data:image/png;base64,${TEST_IMAGE_1x1}`
+
+    await page.addInitScript((imageUrl) => {
+      const calls: string[] = []
+      const urls: string[] = []
+      ;(window as any).__captureFallbackCalls = calls
+      ;(window as any).__captureWindowUrls = urls
+      localStorage.setItem('dagu-ocr.preferences', JSON.stringify({
+        ocrProviderId: 'ztools:mock-ocr',
+        translationProviderId: 'ztools:mock-translation',
+        sourceLang: 'auto',
+        targetLang: 'zh-CN',
+        syncSecrets: false
+      }))
+      window.ztools = {
+        providers: {
+          getProviders: async (type) => [{ id: `mock-${type}`, label: `测试 ${type}` }],
+          invokeProvider: async (type, input) => (
+            type === 'ocr' ? 'Mock OCR Result' : `Mock Translation: ${input.text || ''}`
+          )
+        },
+        copyText: () => true,
+        hideMainWindow: () => {},
+        showMainWindow: () => {},
+        getCursorScreenPoint: () => ({ x: 640, y: 360 }),
+        screenToDipPoint: (point) => point,
+        getDisplayNearestPoint: () => ({
+          id: 1,
+          bounds: { x: 0, y: 0, width: 1280, height: 720 },
+          scaleFactor: 1
+        }),
+        desktopCaptureSources: async () => {
+          calls.push('desktopCaptureSources')
+          return [{
+            id: 'screen:0:0',
+            display_id: 1,
+            thumbnail: {
+              getSize: () => ({ width: 1, height: 1 }),
+              toDataURL: () => imageUrl
+            }
+          }]
+        },
+        screenCapture: (callback) => {
+          calls.push('screenCapture')
+          callback(imageUrl)
+        },
+        createBrowserWindow: (url) => {
+          calls.push('createBrowserWindow')
+          urls.push(url)
+          return {
+            close: () => {},
+            show: () => {},
+            focus: () => {},
+            isVisible: () => true,
+            setBounds: () => {},
+            moveTop: () => {}
+          }
+        }
+      }
+    }, captureImage)
+
+    await page.goto('/index.html')
+    await page.waitForLoadState('networkidle')
+    await page.evaluate(() => window.app.onPluginEnter({ code: 'screenshot' }))
+    await expect.poll(() => page.evaluate(() => (window as any).__captureFallbackCalls)).toContain('desktopCaptureSources')
+
+    await page.evaluate(() => window.postMessage({
+      type: 'daguOcrEditorMessage',
+      payload: { event: 'captureFailed', message: 'HDR 环境截图输出全白，已回退系统截图' }
+    }, '*'))
+
+    await expect.poll(() => page.evaluate(() => (window as any).__captureFallbackCalls)).toContain('screenCapture')
+    const urls = await page.evaluate(() => (window as any).__captureWindowUrls as string[])
+    expect(urls[0]).toContain('mode=screen')
+    expect(urls.at(-1)).toContain('mode=image')
+    const imageKey = decodeURIComponent(urls.at(-1)?.match(/imageKey=([^&]+)/)?.[1] || '')
+    await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), imageKey)).toBe(captureImage)
+  })
+
   test('子窗口创建失败时回退到同一窗口且操作可点击', async ({ page }) => {
     const captureImage = `data:image/png;base64,${TEST_IMAGE_1x1}`
     const createWindowKey = '__daguOcrCreateBrowserWindowCalls'
