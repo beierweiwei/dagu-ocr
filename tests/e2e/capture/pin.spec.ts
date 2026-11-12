@@ -233,4 +233,62 @@ test.describe('固定到屏幕的图片窗口', () => {
     await expect.poll(() => page.evaluate(() => (window as any).__pinActionUrls.some((url: string) => url.includes('mode=image')))).toBe(true)
     await expect.poll(() => page.evaluate(() => (window as any).__pinActionCalls.filter((item: string) => item === 'close').length)).toBeGreaterThanOrEqual(2)
   })
+
+  test('固定图片 OCR 处理完成前保留子窗口，避免插件进程被回收', async ({ page }) => {
+    const imageUrl = `data:image/png;base64,${TEST_IMAGE_1x1}`
+    await page.addInitScript(() => {
+      const calls: string[] = []
+      ;(window as any).__pinLifecycleCalls = calls
+      ;(window as any).__pinLifecyclePinId = ''
+      ;(window as any).__resolvePinProvider = null
+      localStorage.setItem('dagu-ocr.preferences', JSON.stringify({
+        ocrProviderId: 'ztools:mock-ocr',
+        translationProviderId: 'ztools:mock-translation',
+        sourceLang: 'auto',
+        targetLang: 'zh-CN',
+        syncSecrets: false
+      }))
+      window.ztools = {
+        showMainWindow: async () => { calls.push('showMainWindow') },
+        providers: {
+          getProviders: async (type: string) => [{ id: `mock-${type}`, label: `测试 ${type}` }],
+          invokeProvider: async (type: string) => new Promise((resolve) => {
+            calls.push(`provider:${type}`)
+            ;(window as any).__resolvePinProvider = (value: string) => resolve(value)
+          })
+        },
+        createBrowserWindow: (url: string) => {
+          ;(window as any).__pinLifecyclePinId = new URL(url, window.location.href).searchParams.get('pinId') || ''
+          return {
+            setAlwaysOnTop: () => {},
+            setBounds: () => {},
+            moveTop: () => {},
+            close: () => { calls.push('closePin') }
+          }
+        }
+      }
+    })
+    await page.goto('/index.html')
+    await page.waitForFunction(() => Boolean((window as any).app))
+    await page.evaluate((url) => window.postMessage({
+      type: 'daguOcrEditorMessage',
+      payload: { event: 'pinResult', imageUrl: url, bounds: { x: 10, y: 20, width: 100, height: 80 } }
+    }, '*'), imageUrl)
+    await page.waitForFunction(() => Boolean((window as any).app))
+    await page.waitForFunction(() => Boolean((window as any).__pinLifecyclePinId))
+    const pinId = await page.evaluate(() => (window as any).__pinLifecyclePinId)
+
+    await page.evaluate((id) => window.postMessage({
+      type: 'daguOcrEditorMessage',
+      payload: { source: 'pin', pinId: id, event: 'pinAction', action: 'ocr' }
+    }, '*'), pinId)
+
+    await expect.poll(() => page.evaluate(() => (window as any).__pinLifecycleCalls)).toEqual(['showMainWindow', 'provider:ocr'])
+    await page.waitForTimeout(150)
+    expect(await page.evaluate(() => (window as any).__pinLifecycleCalls.includes('closePin'))).toBe(false)
+
+    await page.evaluate(() => (window as any).__resolvePinProvider('Mock OCR Result'))
+    await expect.poll(() => page.evaluate(() => (window as any).__pinLifecycleCalls)).toEqual(['showMainWindow', 'provider:ocr', 'closePin'])
+    await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
+  })
 })

@@ -304,9 +304,19 @@ function handlePinMessage(message) {
       return;
     }
     if (action === 'ocr' || action === 'translate') {
-      showMainWindow();
-      void controller.handleEditedImage(entry.imageUrl, action);
-      closePinWindow(message.pinId);
+      // OCR / 翻译会异步调用 Provider；固定子窗口必须等主页面处理完成后再关闭，
+      // 否则最后一个子窗口销毁后宿主可能回收插件进程，让识别请求静默中断。
+      void (async () => {
+        const restore = win?.ztools?.showMainWindow || win?.utools?.showMainWindow;
+        if (typeof restore === 'function') {
+          try {
+            await restore();
+          } catch (error) {
+            console.warn('恢复主窗口失败:', error);
+          }
+        }
+        await controller.handleEditedImage(entry.imageUrl, action);
+      })().finally(() => closePinWindow(message.pinId));
       return;
     }
   }
