@@ -24,6 +24,7 @@ let controller;
 // ── 覆盖层窗口：截图与图片编辑共用同一套窗口生命周期 ──
 let activeOverlay = null;
 const pinWindows = new Map();
+let pinMainWindowRestored = false;
 
 function editorWindowSize(imageUrl) {
   const clamp = (width, height) => ({
@@ -295,6 +296,7 @@ function handlePinMessage(message) {
   }
   if (message.event === 'pinClose') {
     closePinWindow(message.pinId);
+    if (pinWindows.size === 0 && !pinMainWindowRestored) controller.exitPlugin();
     return;
   }
   if (message.event === 'pinAction') {
@@ -311,6 +313,7 @@ function handlePinMessage(message) {
         if (typeof restore === 'function') {
           try {
             await restore();
+            pinMainWindowRestored = true;
           } catch (error) {
             console.warn('恢复主窗口失败:', error);
           }
@@ -324,6 +327,7 @@ function handlePinMessage(message) {
 
 // ── 截图：沉浸式覆盖层直接在全屏冻结画面上框选、标注 ──
 function startScreenshotFlow() {
+  pinMainWindowRestored = false;
   hideMainWindow();
   controller.showStatus('正在准备截图...');
   closeOverlayWindow();
@@ -458,7 +462,7 @@ function handleEditorMessage(message) {
   if (message.event === 'closed') {
     closeOverlayWindow();
     if (message.returnInput || message.returnToInput) showMainWindow();
-    else controller.exitPlugin();
+    else if (pinWindows.size === 0) controller.exitPlugin();
     return true;
   }
   return false;

@@ -291,4 +291,46 @@ test.describe('固定到屏幕的图片窗口', () => {
     await expect.poll(() => page.evaluate(() => (window as any).__pinLifecycleCalls)).toEqual(['showMainWindow', 'provider:ocr', 'closePin'])
     await expect(page.locator('#resultText')).toHaveValue('Mock OCR Result')
   })
+
+  test('存在固定图片时不退出插件主视图，删除最后一张后再退出', async ({ page }) => {
+    const imageUrl = `data:image/png;base64,${TEST_IMAGE_1x1}`
+    await page.addInitScript(() => {
+      const calls: string[] = []
+      ;(window as any).__pinPluginLifecycleCalls = calls
+      ;(window as any).__pinPluginPinId = ''
+      window.ztools = {
+        outPlugin: async () => { calls.push('outPlugin') },
+        createBrowserWindow: (url: string) => {
+          ;(window as any).__pinPluginPinId = new URL(url, window.location.href).searchParams.get('pinId') || ''
+          return {
+            setAlwaysOnTop: () => {},
+            setBounds: () => {},
+            moveTop: () => {},
+            close: () => { calls.push('closePin') }
+          }
+        }
+      }
+    })
+    await page.goto('/index.html')
+    await page.waitForFunction(() => Boolean((window as any).app))
+    await page.evaluate((url) => window.postMessage({
+      type: 'daguOcrEditorMessage',
+      payload: { event: 'pinResult', imageUrl: url, bounds: { x: 10, y: 20, width: 100, height: 80 } }
+    }, '*'), imageUrl)
+    await page.waitForFunction(() => Boolean((window as any).__pinPluginPinId))
+    const pinId = await page.evaluate(() => (window as any).__pinPluginPinId)
+
+    await page.evaluate(() => window.postMessage({
+      type: 'daguOcrEditorMessage',
+      payload: { event: 'closed' }
+    }, '*'))
+    await page.waitForTimeout(100)
+    expect(await page.evaluate(() => (window as any).__pinPluginLifecycleCalls)).toEqual([])
+
+    await page.evaluate((id) => window.postMessage({
+      type: 'daguOcrEditorMessage',
+      payload: { source: 'pin', pinId: id, event: 'pinClose' }
+    }, '*'), pinId)
+    await expect.poll(() => page.evaluate(() => (window as any).__pinPluginLifecycleCalls)).toEqual(['closePin', 'outPlugin'])
+  })
 })
