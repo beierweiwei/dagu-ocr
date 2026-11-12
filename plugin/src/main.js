@@ -213,7 +213,8 @@ function openPinWindow({ imageUrl, bounds }) {
       fullscreenable: false,
       skipTaskbar: true,
       hasShadow: false,
-      alwaysOnTop: true,
+      // Windows/Electron 从构造参数进入置顶态可能不落 native z-order，先显式关闭再打开。
+      alwaysOnTop: false,
       title: '固定截图',
       webPreferences: {
         preload: 'preload.js',
@@ -224,9 +225,18 @@ function openPinWindow({ imageUrl, bounds }) {
     console.warn('创建固定窗口失败:', error);
   }
   if (!child) return false;
+  try {
+    // ZTools 插件子窗口会弱化创建参数里的置顶状态，创建后需重新声明。
+    child.setAlwaysOnTop?.(false);
+    child.setAlwaysOnTop?.(true);
+    child.moveTop?.();
+  } catch (error) {
+    console.warn('固定窗口置顶失败:', error);
+  }
 
   pinWindows.set(pinId, {
     child,
+    imageUrl,
     base: { width, height },
     zoom: 1,
     bounds: { ...position, width, height }
@@ -241,6 +251,17 @@ function applyPinBounds(entry, nextBounds) {
   } catch (error) {
     console.warn('调整固定窗口失败:', error);
   }
+}
+
+function closePinWindow(pinId) {
+  const entry = pinWindows.get(pinId);
+  if (!entry) return;
+  try {
+    entry.child?.close?.();
+  } catch {
+    // 窗口已关闭时忽略。
+  }
+  pinWindows.delete(pinId);
 }
 
 function handlePinMessage(message) {
@@ -273,12 +294,21 @@ function handlePinMessage(message) {
     return;
   }
   if (message.event === 'pinClose') {
-    try {
-      entry.child?.close?.();
-    } catch {
-      // 窗口已关闭时忽略。
+    closePinWindow(message.pinId);
+    return;
+  }
+  if (message.event === 'pinAction') {
+    const action = message.action;
+    if (action === 'edit') {
+      void openEditorWindow(entry.imageUrl).finally(() => closePinWindow(message.pinId));
+      return;
     }
-    pinWindows.delete(message.pinId);
+    if (action === 'ocr' || action === 'translate') {
+      showMainWindow();
+      void controller.handleEditedImage(entry.imageUrl, action);
+      closePinWindow(message.pinId);
+      return;
+    }
   }
 }
 
